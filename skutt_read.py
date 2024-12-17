@@ -10,6 +10,9 @@ import glob
 from os.path import split as _split
 from os.path import join as _join
 from os.path import exists as _exists
+
+import paho.mqtt.client as mqtt
+
 # Debug level (0 = no debug info, 1 = console info, 2 = image output)
 debug = 2
 
@@ -41,7 +44,7 @@ capture_method = "frame_interval"
 
 if capture_method == "frame_interval":
     # Frame interval (e.g., 1 frame every 2 seconds)
-    frame_rate = 0.3  # Capture 0.5 fps (1 frame every 2 seconds)
+    frame_rate = 0.35  # Capture 0.5 fps (1 frame every 2 seconds)
 
     # FFmpeg command
     ffmpeg_command = [
@@ -107,8 +110,11 @@ target_id = 8
 
 # Define bounding box in normalized units relative to marker size
 # (0,0) top-left of marker, (1,1) bottom-right of marker
-UL = (1.07, 0.3)  # upper-left corner of bounding box
-LR = (2.2, 0.8)  # lower-right corner of bounding box
+#UL = (1.07, 0.3)  # upper-left corner of bounding box
+#LR = (2.2, 0.8)  # lower-right corner of bounding box
+
+UL = (-0.25, -1.0)  # upper-left corner of bounding box
+LR = (3.5, 1.5)  # lower-right corner of bounding box
 scale = 500  # pixels per unit
 
 # Points defining the normalized marker coordinate system
@@ -128,7 +134,7 @@ marker_corners_normalized = np.array([
 #
 # 3.2 Loop over the captured frames
 #
-H_box = None
+H_box, H_fine = None, None
 rotate_angle = None
 processed_frames = []
 for k, output_frame in enumerate(output_frames):
@@ -229,7 +235,7 @@ for k, output_frame in enumerate(output_frames):
                 "output_width": output_width,
                 "output_height": output_height
             }
-            with open("homography.json", "w") as f:
+            with open("H_box.json", "w") as f:
                 json.dump(homography, f)
 
     #
@@ -240,10 +246,10 @@ for k, output_frame in enumerate(output_frames):
         # can still retrieve the image from the last successful homography
         if debug:
             print("Marker not found")
-        if  _exists("homography.json"):
+        if  _exists("H_box.json"):
             if debug:
                 print("Using last successful homography")
-            with open("homography.json", "r") as f:
+            with open("H_box.json", "r") as f:
                 homography = json.load(f)
                 H_box = np.array(homography["H"], dtype=np.float32)
                 output_width = homography["output_width"]
@@ -282,97 +288,89 @@ for k, output_frame in enumerate(output_frames):
     if debug > 1:
         cv2.imwrite(f"frame_{k+1:04d},03_rectified.jpg", rectified_box)
 
-    #
-    # 3.2.4 Detect lines in the rectified image to correct small rotation errors
-    if rotate_angle is None:
+
+    if H_fine is None:
         if debug:
-            print("  Detecting lines to determine rotation...")
+            print("  Detecting features for fine homography...")
             
-        # The Canny detection fails to find the edges of the segmented display with the custom grayscale conversion
-        _rectified_box = cv2.warpPerspective(gray, H_box, (output_width, output_height))
-            
-        edges = cv2.Canny(_rectified_box, 50, 150, apertureSize=3)
-
-        # Detect lines using Hough transform
-        lines = cv2.HoughLinesP(edges, 
-                            rho=1, 
-                            theta=np.pi/180, 
-                            threshold=30,
-                            minLineLength=150,
-                            maxLineGap=50)  
-
-        if lines is not None:
-            # Find the best line as the longest line
-            best_line = None
-            longest_line = 0.0
-            for line in lines:
-                x1, y1, x2, y2 = line[0]
-                dx = x2 - x1
-                dy = y2 - y1
-                angle = math.degrees(math.atan2(dy, dx))
-                length = math.sqrt(dx*dx + dy*dy)
-                if length > longest_line:
-                    longest_line = length
-                    rotate_angle = angle
-                    best_line = (x1, y1, x2, y2)
-            
-            # serialize rotate_angle to json
-            with open("rotate_angle.json", "w") as f:
-                json.dump({"angle": rotate_angle}, f)
-
-            if debug > 1:
-                rect_annotated = _rectified_box.copy()
-                # make color
-                rect_annotated = cv2.cvtColor(rect_annotated, cv2.COLOR_GRAY2BGR)
-                for line in lines:
-                    x1, y1, x2, y2 = line[0]
-                    cv2.line(rect_annotated, (x1, y1), (x2, y2), (0,0,255), 1)
-                    
-                # Draw the best line
-                x1, y1, x2, y2 = best_line
-                cv2.line(rect_annotated, (x1, y1), (x2, y2), (0,255,0), 2)
-                cv2.putText(rect_annotated, f"Angle: {rotate_angle:.2f}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                cv2.imwrite(f"frame_{k+1:04d},04_lines.jpg", rect_annotated)
-
-    #
-    # 3.2.5 Fallback for rotation angle
-    if rotate_angle is None:
-        if debug:
-            print("  Angle detection failed")
-        if _exists("rotate_angle.json"):
-            if debug:
-                print("Using last successful angle")
-            with open("rotate_angle.json", "r") as f:
-                rotate_angle = float(json.load(f)["angle"])
+        template = cv2.imread("../templates/template.jpg", cv2.IMREAD_GRAYSCALE)
+        
+        detector = cv2.AKAZE_create()
+        kp1, des1 = detector.detectAndCompute(rectified_box, None)
+        kp2, des2 = detector.detectAndCompute(template, None)
+        
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        matches = bf.knnMatch(des1, des2, k=2)
+        
+        good_matches = []
+        for m, n in matches:
+            if m.distance < 0.6 * n.distance:
+                good_matches.append(m)
                 
-    if rotate_angle is None:
         if debug:
-            print("  Defaulting to 0 rotation angle")
-        rotate_angle = 0.0
-        
-    if abs(rotate_angle) > 5.0:
-        if debug:
-            print(f"  WARNING: Detected rotation angle of {rotate_angle:.2f} degrees, falling back to 0.0")
-        rotate_angle = 0.0
+            print(f"  Found {len(good_matches)} good matches")
+            
+        src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches]).reshape(-1,1,2)
+        dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1,1,2)
+        H_fine, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            
+        if debug > 1:
+            rect_annotated = rectified_box.copy()
+            # make color
+            rect_annotated = cv2.cvtColor(rect_annotated, cv2.COLOR_GRAY2BGR)
+            
+            # Draw the matches
+            rect_annotated = cv2.drawMatches(rectified_box, kp1, template, kp2, good_matches, rect_annotated, flags=2)
+                
+            cv2.putText(rect_annotated, f"Matches: {len(good_matches)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.imwrite(f"frame_{k+1:04d},04_feature_matching.jpg", rect_annotated)
+
+        if H_fine is not None:
+            print("  Homography identification successful")
+
+        # Serialize homography to json
+        homography = {
+            "H": H_fine.tolist(),
+            "output_width": output_width,
+            "output_height": output_height
+        }
+        with open("H_fine.json", "w") as f:
+            json.dump(homography, f)
 
     #
-    # 3.2.6 Rotate image
-    if debug:
-        print(f"  Rotating image by {rotate_angle:.2f} degrees")
+    # 3.2.2 Homography Fallback
+    if H_fine is None:
+        # this occurs in low-light conditions, so the camera could be setup
+        # with good lighting and then after the lights go off the camera
+        # can still retrieve the image from the last successful homography
+        if debug:
+            print("Feature detection homography failed")
+        if  _exists("H_fine.json"):
+            if debug:
+                print("Using last successful homography")
+            with open("H_fine.json", "r") as f:
+                homography = json.load(f)
+                H_fine = np.array(homography["H"], dtype=np.float32)
+                output_width = homography["output_width"]
+                output_height = homography["output_height"]
+                
+    assert H_fine is not None, "ERROR: Cannot determine homography"
         
-    # Rotate image around its center
-    (h, w) = rectified_box.shape[:2]
-    center = (w//2, h//2)
-    M = cv2.getRotationMatrix2D(center, rotate_angle, 1.0)
-    corrected_box = cv2.warpAffine(rectified_box, M, (w, h), flags=cv2.INTER_LINEAR)
+
+    h_t, w_t = template.shape[:2]
+    corrected_box = cv2.warpPerspective(rectified_box, H_fine, (w_t, h_t))
 
     if debug > 1:
         print(f"  Corrected image saved as frame_{k+1:04d},05_corrected.jpg")
         cv2.imwrite(f"frame_{k+1:04d},05_corrected.jpg", corrected_box)
-        rectified_box = corrected_box
         
+    cropped = corrected_box[653:653+250, 664:664+565]
+    
+    if debug > 1:
+        cv2.imwrite(f"frame_{k+1:04d},06_cropped.jpg", cropped)
+    
     # 3.2.7 Append the processed frame
-    processed_frames.append(corrected_box)
+    processed_frames.append(cropped)
     
     if debug:
         print(f"")
@@ -381,30 +379,79 @@ for k, output_frame in enumerate(output_frames):
 # 3.3 Read the processed frames
 #
 
+"""
+Segment Mask - Segments are index like so:
+
+    ####          0 0       # # #  
+   #    #       5  8  1    #10 12#  
+   #    #       5  8  1    #     #  
+    ####   ==>    6 7       # # #  
+   #    #       4  9  2    #     #  
+   #    #       4  9  2    #11 13#  
+    ####          3 3       # # #  14
+
+    The segment mask indicates which segments are active
+    during each displayed number.
+"""
+segment_masks = {
+        # 0  1  2  3  4  5  6  7  8  9  10 11 12 13 14
+    "0": (1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    "1": (0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    "2": (1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "3": (1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "4": (0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "5": (1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "6": (1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "7": (1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    "8": (1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "9": (1, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "C": (1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    "P": (1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "L": (0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    "T": (1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0),
+    "S": (1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "E": (1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+    "W": (0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0),
+    "d": (0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0),
+    "I": (1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0),
+    "R": (1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0),
+    "H": (0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "N": (0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0),
+   "--": (0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    " ": (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ".": (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+}
+
+# these define the segment sampling points
+segment_offsets = [
+    (100-52,  68-58),   # 0
+    (262-178, 98-58),   # 1
+    (256-178, 158-58),  # 2
+    (91-52,   192-58),  # 3
+    (59-52,   158-58),  # 4
+    (63-52,   98-58),   # 5
+    (207-178, 129-58),  # 6
+    (241-178, 129-58),  # 7
+    (476-434, 98-58),   # 8
+    (474-434, 158-58),  # 9
+    (460-429, 84-58),   # 10
+    (450-429, 168-58),  # 11
+    (499-429, 84-58),   # 12
+    (490-434, 168-58),  # 13
+    (260-170, 181-58),  # 14
+]
+
 char_origins = [
-    (52, 58), # (131, 202)
-    (178, 58),
-    (304, 58),
-    (434, 58)
+    (52-8, 58-8), # (131, 202)
+    (178-8, 58-8),
+    (304-5, 58-8),
+    (434-5, 58-8)
 ]
 
 char_width = 135 - 52
 char_height = 202 - 58
 
-segment_offsets = [
-    (100-52,  68-58), # 0
-    (262-178, 98-58),  # 1
-    (256-178, 158-58), # 2
-    (91-52,   192-58), # 3
-    (59-52,   158-58), # 4
-    (63-52,   98-58), # 5
-    (207-178, 129-58),  # 6
-    (241-178, 129-58),  # 7
-    (476-434, 98-58),  # 8
-    (474-434, 158-58),  # 9
-]
-
-segment_offsets = [(int(x) / char_width, int(y) / char_height) for x, y in segment_offsets]
+segment_offsets = [(x / char_width, y / char_height) for x, y in segment_offsets]
 
 background_offsets = [
     (38-52, 44-58),
@@ -419,11 +466,217 @@ background_offsets = [
     (152-52, 159-58),
 ]
 
-background_offsets = [(int(x) / char_width, int(y) / char_height) for x, y in background_offsets]
+background_offsets = [(x / char_width, y / char_height) for x, y in background_offsets]
+
+
+def otsu_like_threshold(background_pts, segment_pts):
+    # Combine all sample points
+    all_pts = np.concatenate([background_pts, segment_pts])
+    all_pts.sort()
+
+    n = len(all_pts)
+    nb = len(background_pts)  # number of background points
+
+    best_threshold = None
+    min_value = float('inf')
+
+    # Start iteration from nb+1 so that class 1 includes all background points
+    # and class 2 contains only segment (or mostly segment) points.
+    for i in range(nb+1, n-2):
+        # Split all_pts into two groups: [0:i], [i:n]
+        n2 = n - i
+        n1 = n - n2
+        
+        x1 = all_pts[:i]
+        var1 = np.var(x1)
+        
+        x2 = all_pts[i:]
+        var2 = np.var(x2)
+        
+        value = var2 * n2 + var1 * n1
+        
+        if debug > 4:
+            print(x2, var1, n1,  var2, n2, value)
+
+        if value < min_value:
+            min_value = value
+            best_threshold = x2[0]-1 
+
+    return best_threshold
+
+
+def read_segments(image: np.ndarray, origin: tuple, method='point_otsu') -> list:
+    """
+    Read the segments of a character from an image.
+    
+    method: 'confidence_interval' 'point_otsu' or 'otsu' or 'ensemble'
+    """
+    global debug, segment_offsets, background_offsets, char_width, char_height
+    
+    if debug:
+        print("read_segments", origin)
+        
+    assert method in ['confidence_interval', 'point_otsu', 'otsu', 'ensemble'], "ERROR: Invalid method"
+    
+    origin_x, origin_y = origin
+    
+    background_pts = []
+    for x_offset, y_offset in background_offsets:
+        _x = int(origin_x + x_offset * char_width)
+        _y = int(origin_y + y_offset * char_height)
+        background_pts.append(image[_y, _x])
+    
+    segment_pts = []
+    for x_offset, y_offset in segment_offsets:
+        _x = int(origin_x + x_offset * char_width)
+        _y = int(origin_y + y_offset * char_height)
+        segment_pts.append(image[_y, _x])
+        
+    if debug:
+        print("  Background Points", background_pts)
+        print("  Segment Points:", segment_pts)
+    
+    ci_segments = None
+    if method == 'confidence_interval' or method == 'ensemble':
+        mu = np.mean(background_pts)
+        sigma = np.std(background_pts)
+        ci = 4 * sigma
+        threshold = mu + ci
+        
+        ci_segments = [int(value > threshold) for value in segment_pts]
+    
+        if debug:
+            print("  CI Segmentation")
+            print("    Mean:", mu)
+            print("    Std Dev:", sigma)
+            print("    Threshold:", threshold)
+            print("    Segments:", ci_segments)
+            
+    otsu_segments = None
+    if method == 'otsu' or method == 'ensemble':
+        _, otsu_thresh = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        
+        otsu_segments =[]
+        for x_offset, y_offset in segment_offsets:
+            _x = int(origin_x + x_offset * char_width)
+            _y = int(origin_y + y_offset * char_height)
+            value = otsu_thresh[_y, _x]
+            otsu_segments.append(int(value / 255))
+            
+        if debug:
+            print("  Otsu Segmentation")
+            print("    Segments:", otsu_segments)
+        
+    otsu_pt_segments = None
+    if method == 'point_otsu' or method == 'ensemble':
+        o2_threshold_val = otsu_like_threshold(background_pts, segment_pts)
+        
+        if o2_threshold_val < 150.0:
+            o2_threshold_val = 150.0
+    
+        otsu_pt_segments = [int(value > o2_threshold_val) for value in segment_pts]
+        
+        if debug:
+            print("  Otsu Point Segmentation")
+            print("    Threshold:", o2_threshold_val)
+            print("    Segments:", otsu_pt_segments)
+            
+    if method == 'confidence_interval':
+        return ci_segments
+    elif method == 'otsu':
+        return otsu_segments
+    elif method == 'point_otsu':
+        return otsu_pt_segments
+    elif method == 'ensemble':
+        return [int((a + b + c) > 1) for a, b, c in zip(ci_segments, otsu_segments, otsu_pt_segments)]
+
+
+def read_char(image: np.ndarray, origin: tuple, error_tolerance=1) -> str:
+    segments = read_segments(image, origin)
+    
+    if (segments[8] == 1 and segments[9] == 1):
+        if debug:
+            print("  WARNING: setting segments 10, 11, 12, 13 to 0 due to 8 and 9 being active")
+            
+        segments[10] = 0
+        segments[11] = 0
+        segments[12] = 0
+        segments[13] = 0
+    
+    ret = ''
+    
+    n = len(segments[:-1])
+    match_counts = {}
+    for char, mask in segment_masks.items():
+        if char == '.':
+            continue
+        match_counts[char] = n - sum(m == s for m, s in zip(mask[:-1], segments[:-1]))
+            
+    # Find the best match and append to ret is within the error tolerance
+    best_match = min(match_counts, key=match_counts.get)
+    if match_counts[best_match] <= error_tolerance:
+        ret += best_match
+            
+    if segments[-1] == 1:
+        ret += '.'
+        
+    if len(ret) == 0:
+        ret = " "
+
+    return ret
+
+def is_float(x):
+    try:
+        float(x)
+        return True
+    except ValueError:
+        return False
+    
+def skutt_time(x):
+    if '.' in x:
+        _x = x.split('.')
+        if len(_x) != 2:
+            return None
+        
+        _x0, _x1 = _x
+        try:
+            hours = int(_x0)
+            minutes = int(_x1)
+            return f'{hours:02d}:{minutes:02d}'
+        except ValueError:
+            return None
+    
+    return None
+
+def skutt_temp(x):
+    try:
+        temp = float(x)
+        if temp > 60.0 and temp < 2500.0:
+            return temp
+    except ValueError:
+        return None
+    
+    return None
+            
+            
+def skutt_state(x):
+    if x.startswith('CPL'):
+        return 'Complete'
+
+
+def read_display(image: np.ndarray) -> str:
+    output = ""
+    for i, char_origin in enumerate(char_origins):
+        if debug:
+            print(f"Reading char {i+1} @ {char_origin}")
+        output += read_char(image, char_origin)
+        
+    return output
 
 if debug:
     print("Reading processed frames...")
 
+displays = []
 for k, image in enumerate(processed_frames):
     if debug:
         print(f"  Reading frame {k+1}...")
@@ -455,5 +708,58 @@ for k, image in enumerate(processed_frames):
                 y = int(y * char_height + ul_y)
                 cv2.circle(annotated, (x, y), 5, (255, 0, 0), -1)
         
-    cv2.imwrite(f"frame_{k+1:04d},06_char_segmentation.jpg", annotated)
+        cv2.imwrite(f"frame_{k+1:04d},06_char_segmentation.jpg", annotated)
     
+    display = read_display(image)
+    
+    if debug:
+        print(f"  Display: {display}\n")
+        
+    displays.append(display)
+    
+temp, time, state = None, None, None
+for i, display in enumerate(displays):
+    print(f"  Frame {i+1}: {display}")
+    _temp = skutt_temp(display)
+    _time = skutt_time(display)
+    _state = skutt_state(display)
+            
+    if _temp:
+        temp = _temp
+        if debug:
+            print(f"    Temperature: {temp}")
+    elif time:
+        time = _time
+        if debug:
+            print(f"    Time: {time}")
+    elif state:
+        state = _state
+        if debug:
+            print(f"    State: {state}")
+    else:
+        if debug:
+            print(f"    Unrecognized: {display}")
+            
+
+mqtt_broker = os.getenv('MQTT_BROKER')
+mqtt_port = int(os.getenv('MQTT_PORT'))
+mqtt_username = os.getenv('MQTT_USERNAME')
+mqtt_password = os.getenv('MQTT_PASSWORD')
+
+client = mqtt.Client()
+
+# Set username and password if provided
+if mqtt_username and mqtt_password:
+    client.username_pw_set(mqtt_username, mqtt_password)
+
+# Connect to MQTT broker
+client.connect(mqtt_broker, mqtt_port, keepalive=60)
+
+# Publish the temperature
+
+mqtt_topic = 'home/kiln/temperature'
+client.publish(mqtt_topic, temp)
+print(f"Published temperature: {temp} °F to topic: {mqtt_topic}")
+
+# Disconnect
+client.disconnect()
