@@ -1,18 +1,26 @@
+# Author: Roger Lew
+# License: BSD-3-Clause
+
 import cv2
 import os
+import sys
 import numpy as np
 import dotenv
 import subprocess
 import math
 import json
 import glob
+from datetime import datetime
 
 from os.path import split as _split
 from os.path import join as _join
 from os.path import exists as _exists
 
 import paho.mqtt.client as mqtt
+import argparse
 
+# Developer notes:
+#
 # This purposefully uses a script approach because it is easier to debug and not get lost.
 # With these sort of CV scripts, there is alot of trial and error and complex program flows
 # end up causing problems if it isn't doing what you actually think it is doing.
@@ -20,14 +28,58 @@ import paho.mqtt.client as mqtt
 # I also knew at the outset I would be deploying it as crontab on Linux. So the scripted
 # approach is more robust for that purpose. 
 
+# 1.1 Configure debug
+
 # Debug level (0 = no debug info, 1 = console info, 2 = image output)
 debug = 2
 
-# 0. Set Working Directory
-os.chdir("working")
+parser = argparse.ArgumentParser(description="skutt_read.py --no_debug flag")
+parser.add_argument(
+    "--no_debug",
+    action="store_true",
+    help="Disable debug mode"
+)
+args = parser.parse_args()
+if args.no_debug:
+    debug = 0
+
+
+thisdir = os.path.dirname(os.path.abspath(__file__))
+
+# 1.2 Set Working Directory
+
+workdir = '/ramdisk'
+
+if not _exists(workdir):
+    workdir = 'working'
+    os.makedirs(workdir, exist_ok=True)
+
+os.chdir(workdir)
+
+# 1.3 Configure logs
+
+error_log_fn = '/var/log/skutt-monitor/error.log'
+if not _exists(_split(error_log_fn)[0]):
+    error_log_fn = 'error.log'
+    
+run_log_fn = '/var/log/skutt-monitor/run.log'
+if not _exists(_split(run_log_fn)[0]):
+    run_log_fn = 'run.log'
+    
+# 1.4 Load the template image
+
+template_fn = _join(thisdir, 'templates/template.jpg')
+
+if not _exists(template_fn):
+    sys.stderr.write("ERROR: Template file not found\n")
+        
+    with open(error_log_fn, 'a') as f:
+        f.write(f"[{datetime.now()}] ERROR: Template file not found\n")
+        
+    exit(1)
 
 #
-# 1. Load username and password from .env file
+# 1.5 Load username and password from .env file
 #
 
 dotenv.load_dotenv()
@@ -55,7 +107,7 @@ n_frames = 7
 
 if capture_method == "frame_interval":
     # Frame interval (e.g., 1 frame every 2 seconds)
-    frame_rate = 0.35  # Capture 0.5 fps (1 frame every 2 seconds)
+    frame_rate = 0.5  # Capture 0.5 fps (1 frame every 2 seconds)
 
     # FFmpeg command
     ffmpeg_command = [
@@ -82,11 +134,15 @@ elif capture_method == "scene_change":
         "-y"                       # Overwrite existing files
     ]
 else:
-    print("ERROR: Invalid capture method")
+    sys.stderr.write("ERROR: Invalid capture method\n")
+        
+    with open(error_log_fn, 'a') as f:
+        f.write(f"[{datetime.now()}] ERROR: Invalid capture method\n")
+        
     exit(1)
 
-
-print(' '.join(ffmpeg_command))
+if debug:
+    print(' '.join(ffmpeg_command))
 
 #
 # 2.1 Remove existing frames
@@ -96,19 +152,36 @@ for output_frame in output_frames:
 
 #
 # 2.2 Capture the RTSP stream
-try:
-    # Run FFmpeg command
-    subprocess.run(ffmpeg_command, check=True, timeout=4*n_frames)
-except subprocess.CalledProcessError as e:
-    print(f"FFmpeg failed: {e}")
+result = subprocess.run(
+    ffmpeg_command,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    timeout=4 * n_frames,
+    text=True  # Captures output as string
+)
 
+if result.returncode != 0:
+    sys.stderr.write(f"ERROR: FFmpeg failed with return code {result.returncode}: {result.stderr}\n")
+    
+    with open(error_log_fn, 'a') as f:
+        f.write(f"[{datetime.now()}] ERROR: FFmpeg failed with return code {result.returncode}: {result.stderr}\n")
+        
+    exit(1)
+    
+    
 # Check if frames were captured
 output_frames = glob.glob("frame_*.jpg")
-assert len(output_frames) > 0, "ERROR: No frames captured"
 
 if debug:
     print(f"Captured {len(output_frames)} frames\n\n")
 
+if len(output_frames) == 0:
+    sys.stderr.write("ERROR: No frames captured\n")
+        
+    with open(error_log_fn, 'a') as f:
+        f.write(f"[{datetime.now()}] ERROR: No frames captured\n")
+        
+    exit(1)
 #
 # 3. Process the captured frames
 #
@@ -258,7 +331,8 @@ for k, output_frame in enumerate(output_frames):
             H_box, status = cv2.findHomography(box_corners_img, dst_box)
             
             if H_box is not None:
-                print("  Homography identification successful")
+                if debug:
+                    print("  Homography identification successful")
 
             # Serialize homography to json
             homography = {
@@ -286,9 +360,14 @@ for k, output_frame in enumerate(output_frames):
                 output_width = homography["output_width"]
                 output_height = homography["output_height"]
                 
-    assert H_box is not None, "ERROR: Cannot determine homography"
-        
-        
+    if H_box is None:
+        sys.stderr.write("ERROR: Cannot determine homography\n")
+            
+        with open(error_log_fn, 'a') as f:
+            f.write(f"[{datetime.now()}] ERROR: Cannot determine homography\n")
+            
+        exit(1)
+    
     #
     # 3.2.3 Image rectification
     if debug:
@@ -323,7 +402,7 @@ for k, output_frame in enumerate(output_frames):
         if debug:
             print("  Detecting features for fine homography...")
             
-        template = cv2.imread("../templates/template.jpg", cv2.IMREAD_GRAYSCALE)
+        template = cv2.imread(template_fn, cv2.IMREAD_GRAYSCALE)
         
         detector = cv2.AKAZE_create()
         kp1, des1 = detector.detectAndCompute(rectified_box, None)
@@ -356,7 +435,8 @@ for k, output_frame in enumerate(output_frames):
             cv2.imwrite(f"frame_{k+1:04d},04_feature_matching.jpg", rect_annotated)
 
         if H_fine is not None:
-            print("  Homography identification successful")
+            if debug:
+                print("  Homography identification successful")
 
         # Serialize homography to json
         homography = {
@@ -384,7 +464,13 @@ for k, output_frame in enumerate(output_frames):
                 output_width = homography["output_width"]
                 output_height = homography["output_height"]
                 
-    assert H_fine is not None, "ERROR: Cannot determine homography"
+    if H_fine is None:
+        sys.stderr.write("ERROR: Cannot determine homography\n")
+            
+        with open(error_log_fn, 'a') as f:
+            f.write(f"[{datetime.now()}] ERROR: Cannot determine homography\n")
+            
+        exit(1)
 
     h_t, w_t = template.shape[:2]
     corrected_box = cv2.warpPerspective(rectified_box, H_fine, (w_t, h_t))
@@ -408,7 +494,15 @@ for k, output_frame in enumerate(output_frames):
     
     if debug:
         print(f"")
+ 
+if len(processed_frames) == 0:
+    sys.stderr.write("ERROR: No processed frames\n")
         
+    with open(error_log_fn, 'a') as f:
+        f.write(f"[{datetime.now()}] ERROR: No processed frames\n")
+        
+    exit(1)
+       
 #
 # 4. Read the processed frames
 #
@@ -587,7 +681,13 @@ def read_segments(image: np.ndarray, origin: tuple, method='point_otsu') -> list
     if debug:
         print("read_segments", origin)
         
-    assert method in ['confidence_interval', 'point_otsu', 'otsu', 'ensemble'], "ERROR: Invalid method"
+    if not method in ['confidence_interval', 'point_otsu', 'otsu', 'ensemble']:
+        sys.stderr.write("ERROR: Invalid method\n")
+        
+        with open(error_log_fn, 'a') as f:
+            f.write(f"[{datetime.now()}] ERROR: Invalid method\n")
+            
+        exit(1)
     
     origin_x, origin_y = origin
     
@@ -763,6 +863,14 @@ for k, image in enumerate(processed_frames):
         
     displays.append(display)
     
+if len(displays) == 0:
+    sys.stderr.write("ERROR: No displays\n")
+        
+    with open(error_log_fn, 'a') as f:
+        f.write(f"[{datetime.now()}] ERROR: No displays\n")
+        
+    exit(1)
+    
 #
 # 4.2 Now that we have the displays, we can extract the temperature, time, and state
 #
@@ -859,10 +967,13 @@ for i, display in enumerate(displays):
             
     last_was_state = _state is not None
     
-if debug:
-    if not temp or not time or not state:
-        print("ERROR: Failed to extract any of the temperature, time, or state.")
-        exit(1)
+if temp is None and time is None and state is None:
+    sys.stderr.write("ERROR: Failed to extract any of the temperature, time, or state.\n")
+        
+    with open(error_log_fn, 'a') as f:
+        f.write(f"[{datetime.now()}] ERROR: Failed to extract any of the temperature, time, or state\n")
+        
+    exit(1)
 
 #
 # 5. Publish the results to MQTT
@@ -888,19 +999,27 @@ client.connect(mqtt_broker, mqtt_port, keepalive=60)
 if temp is not None:
     mqtt_topic = 'home/kiln/temperature'
     client.publish(mqtt_topic, temp)
-    print(f"Published temperature: {temp} °F to topic: {mqtt_topic}")
+    if debug:
+        print(f"Published temperature: {temp} °F to topic: {mqtt_topic}")
 
 # Publish the time
 if time is not None:
     mqtt_topic = 'home/kiln/time'
     client.publish(mqtt_topic, time)
-    print(f"Published time: {time} to topic: {mqtt_topic}")
+    if debug:
+        print(f"Published time: {time} to topic: {mqtt_topic}")
     
 # Publish the state
 if state is not None:
     mqtt_topic = 'home/kiln/state'
     client.publish(mqtt_topic, state)
-    print(f"Published state: {state} to topic: {mqtt_topic}")
+    if debug:
+        print(f"Published state: {state} to topic: {mqtt_topic}")
 
 # Disconnect
 client.disconnect()
+
+with open(run_log_fn, 'a') as f:
+    f.write(f'[{datetime.now()}] temp={temp}, time={time}, state={state}\n')
+
+print(f"state={state}, temp={temp}, time={time}")
