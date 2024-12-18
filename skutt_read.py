@@ -830,6 +830,9 @@ def skutt_state(x):
 temp, time, state = None, None, None
 last_was_state = None
 
+if debug:
+    print("Frame Semantics:")
+    
 for i, display in enumerate(displays):
     if debug:
         print(f"  Frame {i+1}: {display}")
@@ -872,7 +875,7 @@ mqtt_port = int(os.getenv('MQTT_PORT'))
 mqtt_username = os.getenv('MQTT_USERNAME')
 mqtt_password = os.getenv('MQTT_PASSWORD')
 
-client = mqtt.Client()
+client = mqtt.Client(protocol=mqtt.MQTTv5)
 
 # Set username and password if provided
 if mqtt_username and mqtt_password:
