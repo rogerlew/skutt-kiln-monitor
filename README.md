@@ -9,6 +9,8 @@ A Python-based Computer Vision (CV) tool designed to read and interpret the stat
 5. Derives the kiln’s current temperature, firing state, and the displayed time.
 6. Publishes these values to MQTT topic for home-assistant/HomeKit integration
 
+![image](https://github.com/user-attachments/assets/577bdf7b-e2ec-4986-b987-a152cf80c4b7)
+
 ## Features
 
 - Captures images from an RTSP camera feed.
@@ -100,6 +102,7 @@ The template file may need to be updated for the fine homography adjustment.
 
 
 ## Physical Setup
+![image](https://github.com/user-attachments/assets/2787d67a-0d74-4512-8686-47f12ead77c9)
 
 
 ## License
