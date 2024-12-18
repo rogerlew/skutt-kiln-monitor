@@ -62,8 +62,8 @@ A Python-based Computer Vision (CV) tool designed to read and interpret the stat
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd <repository-directory>
+   git clone [<repository-url>](https://github.com/rogerlew/skutt_kiln_cv)
+   cd skutt_kiln_cv
    ```
 
 2. Configure the `.env` file with your credentials and settings:
