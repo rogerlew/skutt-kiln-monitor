@@ -18,7 +18,7 @@ A Python-based Computer Vision (CV) tool designed to read and interpret the stat
 - Publishes extracted data to an MQTT broker for integration into home automation systems.
 - Supports flexible debugging options with image outputs at various processing stages.
 
-**License:** [BSD-3-Clause](./LICENSE)
+**License:** [BSD-3-Clause](LICENSE.md)
 
 ---
 
