@@ -38,7 +38,9 @@ A Python-based Computer Vision (CV) tool designed to read and interpret the stat
 ## Setup & Requirements
 
 1. **Camera Setup:**  
-   Position a webcam or RTSP-capable IP camera close to the kiln’s LCD and the attached ArUco marker (ID=8). A stable, front-facing view ensures accurate homography and segment detection.
+   Position a webcam or RTSP-capable IP camera close to the kiln’s LCD and the attached ArUco marker (ID=8) 2"x2". A stable, front-facing view ensures accurate homography and segment detection.
+
+![4x4_1000-8](https://github.com/user-attachments/assets/3417e96e-64f5-4a3f-bffa-3d01a3d9f6ed)
 
 2. **Dependencies:**
    - Python 3.x
