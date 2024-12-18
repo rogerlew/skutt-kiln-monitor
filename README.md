@@ -7,7 +7,7 @@ A Python-based Computer Vision (CV) tool designed to read and interpret the stat
 3. Applies feature-based matching to further refine the image alignment.
 4. Identifies active segments of the kiln’s LCD display.
 5. Derives the kiln’s current temperature, firing state, and the displayed time.
-6. Publishes these values to MQTT topi
+6. Publishes these values to MQTT topic for home-assistant/HomeKit integration
 
 ## Features
 
