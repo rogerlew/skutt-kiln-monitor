@@ -32,6 +32,10 @@ A Python-based Computer Vision (CV) tool designed to monitor the state of a Skut
   Analyzes which LCD segments are active, applying logical rules and various thresholding methods (confidence intervals, Otsu-like approaches) to handle challenging layouts.
 - **MQTT Integration:**  
   Publishes temperature, time, and firing state readings to MQTT topics, simplifying integration with home automation frameworks.
+- **Inexpensive:**
+  Utilizes sub-$20 commodity RTSP web camera
+  
+![image](https://github.com/user-attachments/assets/f661f353-2514-4d06-b96e-3c75f2611396)
 
 ---
 
@@ -100,7 +104,9 @@ cropped = corrected_box[653:653+250, 664:664+565]
 
 **Update Template File**
 
-The template file may need to be updated for the fine homography adjustment.
+The template file (`templates/templates.jpg`) may need to be updated for the fine homography adjustment. The template file should have the LCD Display as rectilinear as possible.
+Web cameras with large fields of view have a great deal of lens distortion. To create the template image the camera was positioned 16" from the LCD 
+screen such that the lens was centered vertically and horizontally with the screen. The image was captured and cropped to exclude background elements.
 
 **Home Assistant Integration**
 
@@ -119,7 +125,8 @@ For Homekit bridge add to `sensor.kiln_temperature` to `include_entities` list
 
 
 ## Physical Setup
-![image](https://github.com/user-attachments/assets/2787d67a-0d74-4512-8686-47f12ead77c9)
+
+<img src="https://github.com/user-attachments/assets/2787d67a-0d74-4512-8686-47f12ead77c9" alt="image" width="300"/>
 
 
 ## License
