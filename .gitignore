@@ -1,3 +1,4 @@
 .env
 working/
 test_images/
+*.log
