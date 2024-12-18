@@ -1,6 +1,6 @@
 # Skutt Kiln LCD Computer Vision Reader
 
-A Python-based Computer Vision (CV) tool designed to read and interpret the state of a Skutt kiln’s segmented LCD display using a low-cost IP or RTSP camera feed. This script:
+A Python-based Computer Vision (CV) tool designed to monitor the state of a Skutt kiln’s segmented LCD display using a low-cost IP or RTSP camera feed. This script:
 
 1. Captures frames from a Tapo or similar RTSP camera.
 2. Uses an ArUco marker to establish a homography and rectify the image.
