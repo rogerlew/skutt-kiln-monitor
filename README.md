@@ -102,6 +102,21 @@ cropped = corrected_box[653:653+250, 664:664+565]
 
 The template file may need to be updated for the fine homography adjustment.
 
+**Home Assistant Integration**
+
+```
+sensor:
+  - platform: mqtt
+    name: "Kiln Temperature"
+    state_topic: "home/kiln/temperature"
+    unit_of_measurement: "°F"
+    value_template: "{{ value }}"
+    device_class: "temperature"
+    unique_id: "kiln_temperature_sensor"
+```
+
+For Homekit bridge add to `sensor.kiln_temperature` to `include_entities` list
+
 
 ## Physical Setup
 ![image](https://github.com/user-attachments/assets/2787d67a-0d74-4512-8686-47f12ead77c9)
