@@ -48,20 +48,15 @@ Tapo (TP-Link) C 110
 ![4x4_1000-8](https://github.com/user-attachments/assets/3417e96e-64f5-4a3f-bffa-3d01a3d9f6ed)
 
 2. **Dependencies:**
-   - Python 3.x
-   - OpenCV (with contrib modules for ArUco):  
-     ```bash
-     pip install opencv-python opencv-contrib-python
-     ```
-   - MQTT client:  
-     ```bash
-     pip install paho-mqtt
-     ```
-   - Environment variables support:  
-     ```bash
-     pip install python-dotenv
-     ```
-   - FFmpeg (installed and on PATH for RTSP frame capture).
+   - Tested with Python 3.12 conda
+   ```bash
+   conda create --name skutt-monitor python=3.12
+   conda activate skutt-monitor
+   conda install -c conda-forge opencv
+   conda install -c conda-forge ffmpeg
+   conda install -c conda-forge paho-mqtt
+   conda install -c conda-forge python-dotenv
+   ```
 
 ## Installation
 
@@ -81,12 +76,29 @@ Tapo (TP-Link) C 110
    MQTT_USERNAME=<mqtt-username>
    MQTT_PASSWORD=<mqtt-password>
    ```
+
+3. Optionally create ramdisk at /ramdisk to write image files. script sets this to the
+   working directory if it exists. Otherwise it creates a working dir relative to current
+   directory.
    
 ## Usage
 
 Run the script from the command line:
 ```bash
-python skutt_read.py
+conda run -n skutt-monitor python /workdir/skutt-kiln-monitor/skutt_read.py --no_debug
+```
+or to suppress debug
+
+```bash
+conda run -n skutt-monitor python /workdir/skutt-kiln-monitor/skutt_read.py --no_debug
+```
+
+## Deployment
+
+- Create `/var/log/skutt-monitor` folder with permissions to write
+- add crontab
+```
+*/10 * * * * conda run -n skutt-monitor python /workdir/skutt-kiln-monitor/skutt_read.py --no_debug
 ```
 
 ## Debugging & Customization
