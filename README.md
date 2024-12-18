@@ -35,6 +35,7 @@ A Python-based Computer Vision (CV) tool designed to monitor the state of a Skut
 - **Inexpensive:**
   Utilizes sub-$20 commodity RTSP web camera
   
+Tapo (TP-Link) C 110
 ![image](https://github.com/user-attachments/assets/f661f353-2514-4d06-b96e-3c75f2611396)
 
 ---
@@ -66,7 +67,7 @@ A Python-based Computer Vision (CV) tool designed to monitor the state of a Skut
 
 1. Clone the repository:
    ```bash
-   git clone [<repository-url>](https://github.com/rogerlew/skutt_kiln_cv)
+   git clone https://github.com/rogerlew/skutt_kiln_cv
    cd skutt_kiln_cv
    ```
 
@@ -98,7 +99,7 @@ python skutt_read.py
 
 **Fine tune `bounding box` for LCD Segment ROI and `char_origins`:**
 
-```
+```python
 cropped = corrected_box[653:653+250, 664:664+565]
 ```
 
@@ -110,7 +111,9 @@ screen such that the lens was centered vertically and horizontally with the scre
 
 **Home Assistant Integration**
 
-```
+<img src="https://github.com/user-attachments/assets/7e792e81-092a-4f7f-98fe-f208f22815fb" alt="Home Assistant Logo" width="180"/>
+
+```yaml
 sensor:
   - platform: mqtt
     name: "Kiln Temperature"
@@ -121,7 +124,9 @@ sensor:
     unique_id: "kiln_temperature_sensor"
 ```
 
-For Homekit bridge add to `sensor.kiln_temperature` to `include_entities` list
+<img src="https://github.com/user-attachments/assets/c141efe5-22fc-446e-a438-350312130355" alt="HomeKit Logo" width="200"/>
+
+For HomeKit bridge add to `sensor.kiln_temperature` to `include_entities` list
 
 
 ## Physical Setup
@@ -169,7 +174,7 @@ This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICEN
 
 ## Example Output
 
-```
+```bash
 ...
 Captured 7 frames
 
