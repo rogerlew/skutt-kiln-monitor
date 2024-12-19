@@ -1146,6 +1146,9 @@ with open(run_log_fn, 'a') as f:
 
 print(f"state={state}, temp={temp}, time={time}")
 
+#
+# 6. Publish to Firebase
+#
 
 FIREBASE_API_FILE = os.getenv('FIREBASE_API_FILE')
 
