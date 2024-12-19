@@ -99,7 +99,7 @@ conda run -n skutt-monitor python /workdir/skutt-kiln-monitor/skutt_read.py --no
 - Create `/var/log/skutt-monitor` folder with permissions to write
 - add crontab
 ```
-*/10 * * * * conda run -n skutt-monitor python /workdir/skutt-kiln-monitor/skutt_read.py --no_debug
+*/10 * * * *  /home/roger/miniconda3/bin/conda run -n skutt-monitor python /workdir/skutt-kiln-monitor/skutt_read.py --no_debug
 ```
 
 ## Debugging & Customization
