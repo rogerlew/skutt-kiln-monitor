@@ -81,7 +81,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-db.collection("kiln-data").orderBy("time", "desc").limit(1)
+db.collection("kiln_data").orderBy("time", "desc").limit(1)
   .get()
   .then(querySnapshot => {
     const data = querySnapshot.docs[0].data();
@@ -90,7 +90,8 @@ db.collection("kiln-data").orderBy("time", "desc").limit(1)
 
 function displayData(data) {
     const hostElement = document.getElementById('service-table-body');
-    hostElement.innerHTML = "Temperature: ${temperature}°F";
+    const temperature = data.temperature;
+    hostElement.innerHTML = `Temperature: ${temperature}°F`;
 }
 </script>
 </body>
