@@ -152,7 +152,7 @@ else:
         
     exit(1)
 
-if debug:
+if debug > 4:
     print(' '.join(ffmpeg_command))
 
 #
@@ -1145,3 +1145,51 @@ with open(run_log_fn, 'a') as f:
     f.write(f'[{datetime.now().isoformat()}] temp={temp}, time={time}, state={state}\n')
 
 print(f"state={state}, temp={temp}, time={time}")
+
+
+FIREBASE_API_FILE = os.getenv('FIREBASE_API_FILE')
+
+if FIREBASE_API_FILE is not None and state is not None and temp is not None and time is not None:
+    import firebase_admin
+    from firebase_admin import firestore, credentials
+    import requests
+
+    # fetch ambient temperature from Home Assistant
+    ambient_temp = None
+    
+    HOMEASSISTANT_IP = os.getenv('HOMEASSISTANT_IP')
+    HOMEASSISTANT_TARGET_ENTITY = os.getenv('HOMEASSISTANT_TARGET_ENTITY')
+    HOMEASSISTANT_LONGLIVED_TOKEN = os.getenv('HOMEASSISTANT_LONGLIVED_TOKEN')
+    
+    url = f"http://{HOMEASSISTANT_IP}:8123/api/states/{HOMEASSISTANT_TARGET_ENTITY}"
+    headers = {
+        "Authorization": f"Bearer {HOMEASSISTANT_LONGLIVED_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        try:
+            ambient_temp = float(data['state'])
+        except ValueError:
+            if debug:
+                print(f"Failed to convert {data['state']} retrieved from home assistant to float")
+            pass
+        
+    # publish to firebase
+    doc = dict(
+        run_time=time,
+        state=state,
+        temperature=temp,
+        ambient_temperature=ambient_temp,
+        time=datetime.now().isoformat(),
+    )
+    cred = credentials.Certificate(_join(thisdir, FIREBASE_API_FILE))
+    firebase_admin.initialize_app(cred)
+
+    db = firestore.client()
+    db.collection('kiln_data').add(doc)
+
+    if debug:
+        print("Published to firebase", doc)
