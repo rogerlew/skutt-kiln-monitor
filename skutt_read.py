@@ -74,7 +74,17 @@ if not _exists(template_fn):
     sys.stderr.write("ERROR: Template file not found\n")
         
     with open(error_log_fn, 'a') as f:
-        f.write(f"[{datetime.now()}] ERROR: Template file not found\n")
+        f.write(f"[{datetime.now().isoformat()}] ERROR: Template file not found\n")
+        
+    exit(1)
+
+segment_mask_fn = _join(thisdir, 'templates/segment_mask.png')
+
+if not _exists(segment_mask_fn):
+    sys.stderr.write("ERROR: Segment Mask file not found\n")
+        
+    with open(error_log_fn, 'a') as f:
+        f.write(f"[{datetime.now().isoformat()}] ERROR: Segment Mask file not found\n")
         
     exit(1)
 
@@ -115,7 +125,7 @@ if capture_method == "frame_interval":
         "-rtsp_transport", "tcp",    # Use TCP for stability
         "-i", rtsp_url,              # Input RTSP URL
         "-vf", f"fps={frame_rate}",  # Set the capture frame rate
-        "-frames:v", f"{n_frames}",            # Capture 5 frames
+        "-frames:v", f"{n_frames}",  # Capture 5 frames
         "-q:v", "2",                 # Image quality (lower number = better quality)
         output_pattern,              # Output file pattern
         "-y"                         # Overwrite files if they exist
@@ -125,19 +135,19 @@ elif capture_method == "scene_change":
     tolerance = 0.025  # Scene change threshold (0.0 to 1.0)
     ffmpeg_command = [
         "ffmpeg",
-        "-rtsp_transport", "tcp",  # Use TCP for stability
-        "-i", rtsp_url,            # Input RTSP URL
+        "-rtsp_transport", "tcp",   # Use TCP for stability
+        "-i", rtsp_url,             # Input RTSP URL
         "-vf", f"select='gt(scene,{tolerance})',showinfo",  # Scene change threshold
-        "-vsync", "vfr",           # Avoid duplicate frames
-        "-frames:v", f"{n_frames}",          # Capture 5 frames
-        output_pattern,            # Output file pattern
-        "-y"                       # Overwrite existing files
+        "-vsync", "vfr",            # Avoid duplicate frames
+        "-frames:v", f"{n_frames}", # Capture 5 frames
+        output_pattern,             # Output file pattern
+        "-y"                        # Overwrite existing files
     ]
 else:
     sys.stderr.write("ERROR: Invalid capture method\n")
         
     with open(error_log_fn, 'a') as f:
-        f.write(f"[{datetime.now()}] ERROR: Invalid capture method\n")
+        f.write(f"[{datetime.now().isoformat()}] ERROR: Invalid capture method\n")
         
     exit(1)
 
@@ -164,7 +174,7 @@ if result.returncode != 0:
     sys.stderr.write(f"ERROR: FFmpeg failed with return code {result.returncode}: {result.stderr}\n")
     
     with open(error_log_fn, 'a') as f:
-        f.write(f"[{datetime.now()}] ERROR: FFmpeg failed with return code {result.returncode}: {result.stderr}\n")
+        f.write(f"[{datetime.now().isoformat()}] ERROR: FFmpeg failed with return code {result.returncode}: {result.stderr}\n")
         
     exit(1)
     
@@ -179,7 +189,7 @@ if len(output_frames) == 0:
     sys.stderr.write("ERROR: No frames captured\n")
         
     with open(error_log_fn, 'a') as f:
-        f.write(f"[{datetime.now()}] ERROR: No frames captured\n")
+        f.write(f"[{datetime.now().isoformat()}] ERROR: No frames captured\n")
         
     exit(1)
 #
@@ -198,8 +208,6 @@ if len(output_frames) == 0:
 # 
 # The segment reading uses point locations to determine whether the segments
 # are active or not, and the locaitons have to be pretty precise.
-#
-# It seems to be functional, but could be improved in the future
 
 # Load the ArUco dictionary and detector parameters
 aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -364,7 +372,7 @@ for k, output_frame in enumerate(output_frames):
         sys.stderr.write("ERROR: Cannot determine homography\n")
             
         with open(error_log_fn, 'a') as f:
-            f.write(f"[{datetime.now()}] ERROR: Cannot determine homography\n")
+            f.write(f"[{datetime.now().isoformat()}] ERROR: Cannot determine homography\n")
             
         exit(1)
     
@@ -393,7 +401,7 @@ for k, output_frame in enumerate(output_frames):
         print(f"  Grayscale conversion,  Raw Min Value: {min_val}, Raw Max Value: {max_val}")
     
     # Rectify the image
-    rectified_box = cv2.warpPerspective(weighted_gray, H_box, (output_width, output_height))
+    rectified_box = cv2.warpPerspective(weighted_gray, H_box, (output_width, output_height), flags=cv2.INTER_NEAREST)
 
     if debug > 1:
         cv2.imwrite(f"frame_{k+1:04d},03_rectified.jpg", rectified_box)
@@ -421,7 +429,9 @@ for k, output_frame in enumerate(output_frames):
             
         src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches]).reshape(-1,1,2)
         dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1,1,2)
-        H_fine, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+        
+        if len(good_matches) > 4:
+            H_fine, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
             
         if debug > 1:
             rect_annotated = rectified_box.copy()
@@ -438,14 +448,17 @@ for k, output_frame in enumerate(output_frames):
             if debug:
                 print("  Homography identification successful")
 
-        # Serialize homography to json
-        homography = {
-            "H": H_fine.tolist(),
-            "output_width": output_width,
-            "output_height": output_height
-        }
-        with open("H_fine.json", "w") as f:
-            json.dump(homography, f)
+            # Serialize homography to json
+            homography = {
+                "H": H_fine.tolist(),
+                "output_width": output_width,
+                "output_height": output_height
+            }
+            with open("H_fine.json", "w") as f:
+                json.dump(homography, f)
+        else:
+            if debug:
+                print("  WARNING: Fine Homography identification failed")
 
     #
     # 3.2.2 Homography Fallback
@@ -453,8 +466,6 @@ for k, output_frame in enumerate(output_frames):
         # this occurs in low-light conditions, so the camera could be setup
         # with good lighting and then after the lights go off the camera
         # can still retrieve the image from the last successful homography
-        if debug:
-            print("Feature detection homography failed")
         if  _exists("H_fine.json"):
             if debug:
                 print("Using last successful homography")
@@ -468,12 +479,12 @@ for k, output_frame in enumerate(output_frames):
         sys.stderr.write("ERROR: Cannot determine homography\n")
             
         with open(error_log_fn, 'a') as f:
-            f.write(f"[{datetime.now()}] ERROR: Cannot determine homography\n")
+            f.write(f"[{datetime.now().isoformat()}] ERROR: Cannot determine homography\n")
             
         exit(1)
 
     h_t, w_t = template.shape[:2]
-    corrected_box = cv2.warpPerspective(rectified_box, H_fine, (w_t, h_t))
+    corrected_box = cv2.warpPerspective(rectified_box, H_fine, (w_t, h_t), flags=cv2.INTER_NEAREST)
 
     if debug > 1:
         print(f"  Corrected image saved as frame_{k+1:04d},05_corrected.jpg")
@@ -499,15 +510,134 @@ if len(processed_frames) == 0:
     sys.stderr.write("ERROR: No processed frames\n")
         
     with open(error_log_fn, 'a') as f:
-        f.write(f"[{datetime.now()}] ERROR: No processed frames\n")
+        f.write(f"[{datetime.now().isoformat()}] ERROR: No processed frames\n")
         
     exit(1)
-       
+              
+
 #
 # 4. Read the processed frames
 #
 # this is loosely based on the approach by https://github.com/scottmudge/SegoDec/
 
+
+# these specfies the origin of the 4 characters in the display in pixels coordinates
+# the origin is the top-left corner of the character
+char_origins = [
+    (52-8, 58-8), # (131, 202)
+    (178-8, 58-8),
+    (304-5, 58-8),
+    (434-8, 58-8)
+]
+
+# these are used to hit test contours for the precise character origin setting
+char_width = 135 - 30
+char_height = 202 - 57
+
+
+#
+# 4.0 build a composite frame to finetune the character origins
+#
+# composite frames together to help with identifying location of segments
+composite_frame = processed_frames[0].copy()
+for frame in processed_frames[1:]:
+    composite_frame = np.maximum(composite_frame, frame)
+composite_frame = cv2.normalize(composite_frame, None, 0, 255, cv2.NORM_MINMAX)
+composite_frame = composite_frame.astype(np.uint8)
+
+if debug > 1:
+    cv2.imwrite("roi_composite_frame.jpg", composite_frame)
+
+_, thresh = cv2.threshold(composite_frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+bounding_boxes = [cv2.boundingRect(cnt) for cnt in contours]
+
+def bounds_intersect(bbox1, bbox2):
+    """
+    Determine if two bounding boxes intersect.
+
+    Parameters:
+    bbox1, bbox2: Tuples representing the bounding boxes in the format (x, y, w, h)
+
+    Returns:
+    True if the bounding boxes intersect, False otherwise
+    """
+    x1, y1, w1, h1 = bbox1
+    x2, y2, w2, h2 = bbox2
+
+    # Calculate the bottom-right coordinates of both bounding boxes
+    x1_br, y1_br = x1 + w1, y1 + h1
+    x2_br, y2_br = x2 + w2, y2 + h2
+
+    # Check for no overlap conditions
+    if x1_br <= x2 or x2_br <= x1:
+        return False
+    if y1_br <= y2 or y2_br <= y1:
+        return False
+
+    # If none of the no overlap conditions are met, the boxes intersect
+    return True
+
+# filter out bounding boxes that intersect with more than one character_box
+filtered_bounding_boxes = []
+
+for bbox in bounding_boxes:
+    num_intersections = 0
+    for ul_x, ul_y in char_origins:
+        if bounds_intersect(bbox, (ul_x, ul_y, char_width, char_height)):
+            num_intersections += 1
+            
+    if num_intersections == 1:
+        filtered_bounding_boxes.append(bbox)
+
+_revised_char_origins = []
+
+for k, (ul_x, ul_y) in enumerate(char_origins):
+    lr_x = ul_x + char_width
+    lr_y = ul_y + char_height
+    
+    intersections = []
+    for x, y, w, h in filtered_bounding_boxes:
+        if bounds_intersect((ul_x, ul_y, char_width, char_height), (x, y, w, h)):
+            intersections.append((x, y, w, h))
+            
+    if len(intersections) == 0:
+        if debug:
+            print(f"WARNING: No intersection found for character {k+1} at {ul_x, ul_y}")
+            
+        _revised_char_origins.append((ul_x, ul_y))
+        
+    else:
+        # build bounding box of the intersections
+        x, y, w, h = intersections[0]
+        for x1, y1, w1, h1 in intersections[1:]:
+            x = min(x, x1)
+            y = min(y, y1)
+            w = max(w, x1 + w1) - x
+            h = max(h, y1 + h1) - y
+            
+        distance = math.sqrt((x - ul_x)**2 + (y - ul_y)**2)
+        if distance < 20:
+            if debug: 
+                print(f"Revising character origin for character {k+1} at {ul_x, ul_y} to {x, y}")
+            _revised_char_origins.append((x, y))
+        else:
+            if debug:
+                print(f"WARNING: Distance too large for revising character {k+1} origin at {ul_x, ul_y} to {x, y}")
+            _revised_char_origins.append((ul_x, ul_y))
+
+char_origins = _revised_char_origins
+
+if debug > 1:
+    output_image = cv2.cvtColor(composite_frame, cv2.COLOR_GRAY2BGR)  # Convert to color for visualization
+    for (x, y, w, h) in bounding_boxes:
+        if w > 10 and h > 20:  # Filter small artifacts
+            cv2.rectangle(output_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    cv2.imwrite("roi_bounding_boxes.jpg", output_image)
+
+#
+# Segment and character defintions
+#
 
 """
 Segment Mask - Segments are index like so:
@@ -534,7 +664,15 @@ Segment Mask - Segments are index like so:
 # ... but I got to far before I realized it and Skutt some novel choices with the
 # font selection and I only gave myself a 24 hour period to do this. 
 
-segment_masks = {
+#
+#Revising character origin for character 1 at (44, 50) to (36, 48)
+#Revising character origin for character 2 at (170, 50) to (165, 48)
+#Revising character origin for character 3 at (299, 50) to (295, 48)
+#Revising character origin for character 4 at (426, 50) to (422, 49)
+#
+#
+
+segment_definitions = {
         # 0  1  2  3  4  5  6  7  8  9  10 11 12 13 14
     "0": (1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     "1": (0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
@@ -563,19 +701,6 @@ segment_masks = {
     ".": (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
 }
 
-# these specfies the origin of the 4 characters in the display in pixels coordinates
-# the origin is the top-left corner of the character
-char_origins = [
-    (52-8, 58-8), # (131, 202)
-    (178-8, 58-8),
-    (304-5, 58-8),
-    (434-8, 58-8)
-]
-
-# these roughly define the width and height of the character in pixels
-# but the character actually extends beyond these points a bit.
-char_width = 135 - 52
-char_height = 202 - 58
 
 # These define the segment sampling points.
 # The sampling points are used to determine if the segment is active.
@@ -597,9 +722,34 @@ segment_offsets = [
     (260-170, 181-58),  # 14
 ]
 
-# normalize to character width and height
-# tried to normalize to make it less size dependent
-segment_offsets = [(x / char_width, y / char_height) for x, y in segment_offsets]
+_segment_mask_origins = [
+    (422, 49),  # 0
+    (422, 49),  # 1
+    (422, 49),  # 2
+    (422, 49),  # 3
+    (422, 49),  # 4
+    (422, 49),  # 5
+    (422, 49),  # 6
+    (422, 49),  # 7
+    (422, 49),  # 8
+    (422, 49),  # 9
+    (422, 49),  # 10
+    (422, 49),  # 11
+    (422, 49),  # 12
+    (422, 49),  # 13
+    (165, 48),  # 14
+]
+
+_segment_mask = cv2.imread(segment_mask_fn)
+
+# we need to build a segment_offset_mask that can be used to slice the values in the image
+segment_indices= []
+
+for i, (x, y) in enumerate(_segment_mask_origins):
+    # find indices of _segment_mask where blue = 0, red = 0, and green = 230 + i
+    mask = (_segment_mask[:, :, 0] == 0) & (_segment_mask[:, :, 1] == 230 + i) & (_segment_mask[:, :, 2] == 0)
+    indices = np.argwhere(mask)
+    segment_indices.append(indices)
 
 # These define the background sampling points around each segment.
 # The idea is that we know these are background and can use there values
@@ -617,9 +767,9 @@ background_offsets = [
     (152-52, 159-58),
 ]
 
-background_offsets = [(x / char_width, y / char_height) for x, y in background_offsets]
-
-## Some Helper functions to avoid heavy nesting
+#
+# Some Helper functions to avoid heavy nesting
+#
 
 def otsu_like_threshold(background_pts, segment_pts):
     """
@@ -676,7 +826,7 @@ def read_segments(image: np.ndarray, origin: tuple, method='point_otsu') -> list
     
     method: 'confidence_interval' 'point_otsu' or 'otsu' or 'ensemble'
     """
-    global debug, segment_offsets, background_offsets, char_width, char_height
+    global debug, segment_offsets, background_offsets
     
     if debug:
         print("read_segments", origin)
@@ -685,7 +835,7 @@ def read_segments(image: np.ndarray, origin: tuple, method='point_otsu') -> list
         sys.stderr.write("ERROR: Invalid method\n")
         
         with open(error_log_fn, 'a') as f:
-            f.write(f"[{datetime.now()}] ERROR: Invalid method\n")
+            f.write(f"[{datetime.now().isoformat()}] ERROR: Invalid method\n")
             
         exit(1)
     
@@ -693,15 +843,15 @@ def read_segments(image: np.ndarray, origin: tuple, method='point_otsu') -> list
     
     background_pts = []
     for x_offset, y_offset in background_offsets:
-        _x = int(origin_x + x_offset * char_width)
-        _y = int(origin_y + y_offset * char_height)
-        background_pts.append(image[_y, _x])
+        _x = origin_x + x_offset
+        _y = origin_y + y_offset
+        background_pts.append(int(image[_y, _x]))
     
     segment_pts = []
     for x_offset, y_offset in segment_offsets:
-        _x = int(origin_x + x_offset * char_width)
-        _y = int(origin_y + y_offset * char_height)
-        segment_pts.append(image[_y, _x])
+        _x = origin_x + x_offset
+        _y = origin_y + y_offset
+        segment_pts.append(int(image[_y, _x]))
         
     if debug:
         print("  Background Points", background_pts)
@@ -729,8 +879,8 @@ def read_segments(image: np.ndarray, origin: tuple, method='point_otsu') -> list
         
         otsu_segments =[]
         for x_offset, y_offset in segment_offsets:
-            _x = int(origin_x + x_offset * char_width)
-            _y = int(origin_y + y_offset * char_height)
+            _x = origin_x + x_offset
+            _y = origin_y + y_offset
             value = otsu_thresh[_y, _x]
             otsu_segments.append(int(value / 255))
             
@@ -762,7 +912,7 @@ def read_char(image: np.ndarray, origin: tuple, error_tolerance=2) -> str:
     """
     Read a character from an image.
     """
-    global segment_masks
+    global segment_definitions
     
     segments = read_segments(image, origin)
     
@@ -779,7 +929,7 @@ def read_char(image: np.ndarray, origin: tuple, error_tolerance=2) -> str:
     
     n = len(segments[:-1])
     match_counts = {}
-    for char, mask in segment_masks.items():
+    for char, mask in segment_definitions.items():
         # need to ignore the period segment for now or it messes up the matching counts
         if char == '.':
             continue
@@ -845,14 +995,10 @@ for k, image in enumerate(processed_frames):
             cv2.polylines(annotated, [box_corners], True, (0, 0, 255), 1)
             
             for x, y in segment_offsets:
-                x = int(x * char_width + ul_x)
-                y = int(y * char_height + ul_y)
-                cv2.circle(annotated, (x, y), 5, (0, 255, 0), -1)
+                cv2.circle(annotated, (ul_x+x, ul_y+y), 5, (0, 255, 0), -1)
                 
             for x, y in background_offsets:
-                x = int(x * char_width + ul_x)
-                y = int(y * char_height + ul_y)
-                cv2.circle(annotated, (x, y), 5, (255, 0, 0), -1)
+                cv2.circle(annotated, (ul_x+x, ul_y+y), 5, (255, 0, 0), -1)
         
         cv2.imwrite(f"frame_{k+1:04d},06_char_segmentation.jpg", annotated)
     
@@ -867,7 +1013,7 @@ if len(displays) == 0:
     sys.stderr.write("ERROR: No displays\n")
         
     with open(error_log_fn, 'a') as f:
-        f.write(f"[{datetime.now()}] ERROR: No displays\n")
+        f.write(f"[{datetime.now().isoformat()}] ERROR: No displays\n")
         
     exit(1)
     
@@ -971,7 +1117,7 @@ if temp is None and time is None and state is None:
     sys.stderr.write("ERROR: Failed to extract any of the temperature, time, or state.\n")
         
     with open(error_log_fn, 'a') as f:
-        f.write(f"[{datetime.now()}] ERROR: Failed to extract any of the temperature, time, or state\n")
+        f.write(f"[{datetime.now().isoformat()}] ERROR: Failed to extract any of the temperature, time, or state\n")
         
     exit(1)
 
@@ -1020,6 +1166,6 @@ if state is not None:
 client.disconnect()
 
 with open(run_log_fn, 'a') as f:
-    f.write(f'[{datetime.now()}] temp={temp}, time={time}, state={state}\n')
+    f.write(f'[{datetime.now().isoformat()}] temp={temp}, time={time}, state={state}\n')
 
 print(f"state={state}, temp={temp}, time={time}")
