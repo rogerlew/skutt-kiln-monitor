@@ -5,6 +5,7 @@ import cv2
 import os
 import sys
 import numpy as np
+import random
 import dotenv
 import subprocess
 import math
@@ -664,14 +665,6 @@ Segment Mask - Segments are index like so:
 # ... but I got to far before I realized it and Skutt some novel choices with the
 # font selection and I only gave myself a 24 hour period to do this. 
 
-#
-#Revising character origin for character 1 at (44, 50) to (36, 48)
-#Revising character origin for character 2 at (170, 50) to (165, 48)
-#Revising character origin for character 3 at (299, 50) to (295, 48)
-#Revising character origin for character 4 at (426, 50) to (422, 49)
-#
-#
-
 segment_definitions = {
         # 0  1  2  3  4  5  6  7  8  9  10 11 12 13 14
     "0": (1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0),
@@ -701,27 +694,6 @@ segment_definitions = {
     ".": (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
 }
 
-
-# These define the segment sampling points.
-# The sampling points are used to determine if the segment is active.
-segment_offsets = [
-    (100-52,  68-58),   # 0
-    (262-178, 98-58),   # 1
-    (256-178, 158-58),  # 2
-    (91-52,   192-58),  # 3
-    (59-52,   158-58),  # 4
-    (63-52,   98-58),   # 5
-    (207-178, 129-58),  # 6
-    (241-178, 129-58),  # 7
-    (480-434, 98-58),   # 8
-    (474-434, 158-58),  # 9
-    (460-429, 84-58),   # 10
-    (450-429, 168-58),  # 11
-    (499-429, 84-58),   # 12
-    (490-434, 168-58),  # 13
-    (260-170, 181-58),  # 14
-]
-
 _segment_mask_origins = [
     (422, 49),  # 0
     (422, 49),  # 1
@@ -743,29 +715,30 @@ _segment_mask_origins = [
 _segment_mask = cv2.imread(segment_mask_fn)
 
 # we need to build a segment_offset_mask that can be used to slice the values in the image
-segment_indices= []
+segment_offsets = []
 
 for i, (x, y) in enumerate(_segment_mask_origins):
     # find indices of _segment_mask where blue = 0, red = 0, and green = 230 + i
     mask = (_segment_mask[:, :, 0] == 0) & (_segment_mask[:, :, 1] == 230 + i) & (_segment_mask[:, :, 2] == 0)
     indices = np.argwhere(mask)
-    segment_indices.append(indices)
+    y_indx, x_indx = indices.T
+    
+    assert len(y_indx) > 0, f"No segment found for segment {i}, bad segment mask file"
+    
+    y_indx -= y
+    x_indx -= x
+    segment_offsets.append((x_indx, y_indx))
+
 
 # These define the background sampling points around each segment.
 # The idea is that we know these are background and can use there values
 # to constrast active segments.
-background_offsets = [
-    (38-52, 44-58),
-    (100-52, 44-58),
-    (152-52, 44-58),
-    (38-52, 214-58),
-    (100-52, 214-58),
-    (152-52, 214-58),
-    (36-52, 98-58),
-    (35-52, 159-58),
-    (152-52, 98-58),
-    (152-52, 159-58),
-]
+mask = (_segment_mask[:, :, 0] == 255) & (_segment_mask[:, :, 1] == 0) & (_segment_mask[:, :, 2] == 0)
+indices = np.argwhere(mask)
+y_indx, x_indx = indices.T
+y_indx -= 50 # origin of first character
+x_indx -= 32
+background_offsets = (x_indx, y_indx)
 
 #
 # Some Helper functions to avoid heavy nesting
@@ -782,6 +755,7 @@ def otsu_like_threshold(background_pts, segment_pts):
     int: The calculated threshold value. If the calculated threshold is less than 100,
          the function returns 100.
     """
+    
     # Combine all sample points
     all_pts = np.concatenate([background_pts, segment_pts])
     all_pts.sort()
@@ -842,16 +816,18 @@ def read_segments(image: np.ndarray, origin: tuple, method='point_otsu') -> list
     origin_x, origin_y = origin
     
     background_pts = []
-    for x_offset, y_offset in background_offsets:
-        _x = origin_x + x_offset
-        _y = origin_y + y_offset
-        background_pts.append(int(image[_y, _x]))
+    
+    x_offsets, y_offsets = background_offsets
+    _x = origin_x + x_offsets
+    _y = origin_y + y_offsets
+    background_pts = image[_y, _x].astype(int).tolist()
+    background_pts = random.sample(background_pts, 14)
     
     segment_pts = []
-    for x_offset, y_offset in segment_offsets:
-        _x = origin_x + x_offset
-        _y = origin_y + y_offset
-        segment_pts.append(int(image[_y, _x]))
+    for x_offsets, y_offsets in segment_offsets:
+        _x = origin_x + x_offsets
+        _y = origin_y + y_offsets
+        segment_pts.append(int(np.median(image[_y, _x])))
         
     if debug:
         print("  Background Points", background_pts)
@@ -917,7 +893,7 @@ def read_char(image: np.ndarray, origin: tuple, error_tolerance=2) -> str:
     segments = read_segments(image, origin)
     
     if (segments[8] == 1 and segments[9] == 1):
-        if debug:
+        if debug and sum(segments[10:14]) > 0:
             print("  WARNING: setting segments 10, 11, 12, 13 to 0 due to 8 and 9 being active")
             
         segments[10] = 0
@@ -938,9 +914,9 @@ def read_char(image: np.ndarray, origin: tuple, error_tolerance=2) -> str:
     # Find the best match and append to ret is within the error tolerance
     best_match = min(match_counts, key=match_counts.get)
     
-    if debug > 4:
-        print("    Match Counts:", match_counts)
-        print("    Best Match:", best_match)
+    if debug:
+        print(f"    Best Match: {best_match}")
+        print(f"    Match Error: {match_counts[best_match]}")
     
     if match_counts[best_match] <= error_tolerance:
         ret += best_match
@@ -994,12 +970,12 @@ for k, image in enumerate(processed_frames):
                 
             cv2.polylines(annotated, [box_corners], True, (0, 0, 255), 1)
             
-            for x, y in segment_offsets:
-                cv2.circle(annotated, (ul_x+x, ul_y+y), 5, (0, 255, 0), -1)
+            for xs, ys in segment_offsets:
+                annotated[ul_y+ys, ul_x+xs] = (0, 255, 0)
                 
-            for x, y in background_offsets:
-                cv2.circle(annotated, (ul_x+x, ul_y+y), 5, (255, 0, 0), -1)
-        
+            x_indx, y_indx = background_offsets
+            annotated[ul_y+y_indx, ul_x+x_indx] = (255, 0, 0)
+            
         cv2.imwrite(f"frame_{k+1:04d},06_char_segmentation.jpg", annotated)
     
     display = read_display(image)
