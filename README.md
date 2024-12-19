@@ -5,9 +5,10 @@ A Python-based Computer Vision (CV) tool designed to monitor the state of a Skut
 1. Captures frames from a Tapo or similar RTSP camera.
 2. Uses an ArUco marker to establish a homography and rectify the image.
 3. Applies feature-based matching to further refine the image alignment.
-4. Identifies active segments of the kiln’s LCD display.
-5. Derives the kiln’s current temperature, firing state, and the displayed time.
-6. Publishes these values to MQTT topic for home-assistant/HomeKit integration
+4. Composites images and uses contours to revise character origins.
+5. Identifies active segments of the kiln’s LCD display.
+6. Derives the kiln’s current temperature, firing state, and the displayed time.
+7. Publishes these values to MQTT topic for home-assistant/HomeKit integration
 
 ![image](https://github.com/user-attachments/assets/577bdf7b-e2ec-4986-b987-a152cf80c4b7)
 
@@ -176,9 +177,29 @@ This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICEN
 
 ![frame_0001,05_corrected](https://github.com/user-attachments/assets/c63f277a-59f4-4563-b65e-87638be67f06)
 
+#### Precise Contour Based Character Detection
+
+The frames are composited using lighten blend.
+
+![roi_composite_frame](https://github.com/user-attachments/assets/acbe7fb0-124e-4c9b-9f6f-5d3fbaf51a8a)
+
+Then contours are identified and the intersecting bounding boxes are used to revise the character origins
+
+![roi_bounding_boxes](https://github.com/user-attachments/assets/ba5b7f45-7122-486b-97ba-38f517b8e39f)
+
 #### Character Segmentation
 
+Original point based segmentation
+
 ![frame_0001,06_char_segmentation](https://github.com/user-attachments/assets/d8d98ab5-f605-41c2-8a48-c309d70ac9a3)
+
+Revised mask based segmentation
+
+![frame_0001,06_char_segmentation](https://github.com/user-attachments/assets/9f223635-96db-459d-a93d-8bfe18d10b47)
+
+This is the template file used to define the segment masks
+
+![segment_mask](https://github.com/user-attachments/assets/525aa7dd-4c15-4274-8ff3-6155d784ab60)
 
 #### LCD Display ROI for reading
 
@@ -193,12 +214,11 @@ Captured 7 frames
 
 Processing frame 0...
   Detecting markers...
-Marker not found
-Using last successful homography
+  Homography identification successful
   Rectifying image...
   Grayscale conversion,  Raw Min Value: 0.0, Raw Max Value: 225.216
   Detecting features for fine homography...
-  Found 133 good matches
+  Found 219 good matches
   Homography identification successful
   Corrected image saved as frame_0001,05_corrected.jpg
 
@@ -232,246 +252,303 @@ Processing frame 6...
   Grayscale conversion,  Raw Min Value: 0.0, Raw Max Value: 225.216
   Corrected image saved as frame_0007,05_corrected.jpg
 
+Revising character origin for character 1 at (44, 50) to (35, 47)
+Revising character origin for character 2 at (170, 50) to (165, 47)
+Revising character origin for character 3 at (299, 50) to (295, 47)
+Revising character origin for character 4 at (426, 50) to (424, 47)
 Reading processed frames...
   Reading frame 1...
-Reading char 1 @ (44, 50)
-read_segments (44, 50)
-  Background Points [78, 118, 86, 78, 109, 71, 110, 143, 99, 95]
-  Segment Points: [253, 101, 88, 253, 250, 251, 111, 87, 106, 99, 151, 154, 126, 105, 86]
+Reading char 1 @ (35, 47)
+read_segments (35, 47)
+  Background Points [46, 52, 62, 61, 60, 49, 55, 57, 56, 54, 54, 53, 49, 64]
+  Segment Points: [63, 68, 62, 64, 65, 67, 66, 64, 67, 66, 61, 64, 65, 64, 60]
   Otsu Point Segmentation
-    Threshold: 249
-    Segments: [1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 2 @ (170, 50)
-read_segments (170, 50)
-  Background Points [83, 125, 88, 81, 73, 79, 114, 135, 146, 99]
-  Segment Points: [253, 251, 112, 95, 253, 254, 254, 253, 135, 135, 165, 159, 236, 98, 87]
+    Threshold: 100
+    Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match:
+    Match Error: 0
+Reading char 2 @ (165, 47)
+read_segments (165, 47)
+  Background Points [57, 57, 59, 60, 55, 51, 60, 60, 59, 54, 57, 58, 46, 60]
+  Segment Points: [55, 58, 58, 61, 60, 61, 60, 56, 58, 60, 61, 60, 54, 62, 54]
   Otsu Point Segmentation
-    Threshold: 235
-    Segments: [1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0]
-Reading char 3 @ (299, 50)
-read_segments (299, 50)
-  Background Points [87, 79, 78, 88, 105, 73, 117, 129, 74, 76]
-  Segment Points: [89, 80, 87, 254, 254, 254, 123, 82, 99, 109, 128, 166, 79, 103, 83]
+    Threshold: 100
+    Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match:
+    Match Error: 0
+Reading char 3 @ (295, 47)
+read_segments (295, 47)
+  Background Points [50, 51, 41, 47, 52, 54, 54, 51, 54, 54, 54, 51, 61, 54]
+  Segment Points: [156, 154, 161, 54, 58, 58, 59, 58, 60, 59, 56, 59, 58, 54, 51]
   Otsu Point Segmentation
-    Threshold: 253
-    Segments: [0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 4 @ (426, 50)
-read_segments (426, 50)
-  Background Points [78, 138, 82, 71, 69, 62, 82, 78, 80, 69]
-  Segment Points: [253, 97, 92, 124, 98, 103, 150, 128, 254, 252, 151, 146, 154, 159, 76]
+    Threshold: 153
+    Segments: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 7
+    Match Error: 0
+Reading char 4 @ (424, 47)
+read_segments (424, 47)
+  Background Points [39, 52, 53, 36, 50, 39, 39, 45, 46, 50, 54, 50, 51, 46]
+  Segment Points: [49, 148, 154, 55, 59, 52, 53, 52, 48, 55, 49, 53, 51, 52, 50]
   Otsu Point Segmentation
-    Threshold: 251
-    Segments: [1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
-  WARNING: setting segments 10, 11, 12, 13 to 0 due to 8 and 9 being active
-  Display: CPLT
+    Threshold: 100
+    Segments: [0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 1
+    Match Error: 0
+  Display:   71
 
   Reading frame 2...
-Reading char 1 @ (44, 50)
-read_segments (44, 50)
-  Background Points [61, 59, 59, 53, 53, 57, 61, 57, 64, 60]
-  Segment Points: [63, 65, 59, 57, 58, 61, 60, 62, 62, 59, 62, 58, 64, 60, 59]
+Reading char 1 @ (35, 47)
+read_segments (35, 47)
+  Background Points [60, 53, 56, 44, 56, 54, 58, 50, 56, 59, 46, 55, 58, 62]
+  Segment Points: [67, 67, 66, 65, 67, 68, 67, 67, 69, 65, 66, 65, 65, 61, 61]
   Otsu Point Segmentation
     Threshold: 100
     Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 2 @ (170, 50)
-read_segments (170, 50)
-  Background Points [60, 67, 71, 64, 71, 78, 61, 60, 86, 96]
-  Segment Points: [69, 75, 73, 71, 64, 65, 64, 67, 66, 68, 65, 65, 66, 71, 83]
+    Best Match:
+    Match Error: 0
+Reading char 2 @ (165, 47)
+read_segments (165, 47)
+  Background Points [55, 60, 42, 61, 54, 60, 53, 56, 50, 57, 54, 58, 58, 60]
+  Segment Points: [158, 152, 60, 148, 163, 65, 179, 169, 60, 61, 64, 66, 59, 64, 156]
   Otsu Point Segmentation
-    Threshold: 100
-    Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 3 @ (299, 50)
-read_segments (299, 50)
-  Background Points [80, 129, 90, 89, 115, 88, 107, 116, 107, 128]
-  Segment Points: [252, 119, 251, 254, 254, 254, 253, 254, 131, 144, 159, 160, 130, 174, 135]
+    Threshold: 147
+    Segments: [1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1]
+    Best Match: 2
+    Match Error: 0
+Reading char 3 @ (295, 47)
+read_segments (295, 47)
+  Background Points [51, 59, 52, 49, 54, 48, 56, 55, 54, 56, 42, 61, 54, 55]
+  Segment Points: [53, 153, 156, 56, 58, 157, 179, 176, 58, 60, 58, 60, 58, 55, 56]
   Otsu Point Segmentation
-    Threshold: 250
-    Segments: [1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
-Reading char 4 @ (426, 50)
-read_segments (426, 50)
-  Background Points [87, 129, 87, 97, 109, 70, 126, 143, 142, 101]
-  Segment Points: [254, 254, 254, 254, 253, 253, 254, 254, 158, 148, 180, 174, 242, 180, 138]
+    Threshold: 152
+    Segments: [0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 4
+    Match Error: 0
+Reading char 4 @ (424, 47)
+read_segments (424, 47)
+  Background Points [52, 39, 36, 44, 49, 43, 52, 40, 44, 51, 50, 48, 41, 51]
+  Segment Points: [146, 149, 151, 145, 152, 155, 171, 162, 51, 58, 52, 59, 51, 56, 52]
   Otsu Point Segmentation
-    Threshold: 241
-    Segments: [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0]
-  Display:   68
-
-  Reading frame 3...
-Reading char 1 @ (44, 50)
-read_segments (44, 50)
-  Background Points [56, 63, 61, 50, 55, 56, 59, 57, 64, 58]
-  Segment Points: [64, 65, 58, 57, 60, 62, 62, 62, 64, 60, 60, 59, 64, 59, 59]
-  Otsu Point Segmentation
-    Threshold: 100
-    Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 2 @ (170, 50)
-read_segments (170, 50)
-  Background Points [59, 65, 69, 65, 69, 77, 64, 58, 90, 95]
-  Segment Points: [66, 73, 76, 71, 64, 63, 64, 67, 63, 66, 64, 66, 67, 71, 81]
-  Otsu Point Segmentation
-    Threshold: 100
-    Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 3 @ (299, 50)
-read_segments (299, 50)
-  Background Points [85, 129, 86, 86, 110, 93, 105, 112, 108, 138]
-  Segment Points: [252, 126, 253, 255, 254, 254, 252, 253, 142, 152, 153, 168, 126, 170, 146]
-  Otsu Point Segmentation
-    Threshold: 251
-    Segments: [1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
-Reading char 4 @ (426, 50)
-read_segments (426, 50)
-  Background Points [85, 130, 85, 94, 111, 72, 119, 142, 131, 107]
-  Segment Points: [254, 254, 253, 254, 254, 252, 253, 253, 156, 152, 166, 185, 241, 164, 147]
-  Otsu Point Segmentation
-    Threshold: 240
-    Segments: [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0]
-  Display:   68
-
-  Reading frame 4...
-Reading char 1 @ (44, 50)
-read_segments (44, 50)
-  Background Points [59, 62, 65, 55, 58, 67, 58, 56, 72, 92]
-  Segment Points: [66, 73, 71, 62, 61, 63, 64, 65, 66, 63, 65, 61, 68, 62, 76]
-  Otsu Point Segmentation
-    Threshold: 100
-    Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 2 @ (170, 50)
-read_segments (170, 50)
-  Background Points [69, 125, 98, 82, 118, 90, 80, 126, 146, 100]
-  Segment Points: [253, 252, 134, 253, 252, 114, 253, 254, 135, 138, 135, 170, 229, 131, 253]
-  Otsu Point Segmentation
-    Threshold: 228
-    Segments: [1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1]
-Reading char 3 @ (299, 50)
-read_segments (299, 50)
-  Background Points [88, 89, 91, 82, 74, 88, 118, 101, 148, 132]
-  Segment Points: [113, 253, 253, 93, 104, 253, 254, 254, 138, 129, 135, 101, 230, 156, 131]
-  Otsu Point Segmentation
-    Threshold: 229
-    Segments: [0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0]
-Reading char 4 @ (426, 50)
-read_segments (426, 50)
-  Background Points [91, 124, 93, 94, 105, 74, 134, 138, 135, 106]
-  Segment Points: [253, 253, 254, 253, 253, 253, 251, 253, 151, 155, 174, 172, 239, 177, 148]
-  Otsu Point Segmentation
-    Threshold: 238
-    Segments: [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0]
+    Threshold: 144
+    Segments: [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 8
+    Match Error: 0
   Display:  2.48
 
-  Reading frame 5...
-Reading char 1 @ (44, 50)
-read_segments (44, 50)
-  Background Points [76, 112, 85, 81, 112, 74, 106, 148, 100, 102]
-  Segment Points: [253, 98, 90, 253, 252, 254, 114, 84, 112, 104, 141, 143, 118, 112, 82]
+  Reading frame 3...
+Reading char 1 @ (35, 47)
+read_segments (35, 47)
+  Background Points [50, 57, 58, 57, 62, 57, 57, 60, 57, 63, 57, 56, 58, 61]
+  Segment Points: [64, 68, 64, 64, 69, 67, 66, 68, 67, 66, 64, 65, 67, 62, 60]
   Otsu Point Segmentation
-    Threshold: 251
+    Threshold: 100
+    Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match:
+    Match Error: 0
+Reading char 2 @ (165, 47)
+read_segments (165, 47)
+  Background Points [38, 58, 40, 61, 37, 52, 57, 62, 40, 59, 57, 55, 58, 58]
+  Segment Points: [156, 152, 59, 148, 163, 65, 175, 167, 60, 62, 64, 65, 61, 65, 157]
+  Otsu Point Segmentation
+    Threshold: 147
+    Segments: [1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1]
+    Best Match: 2
+    Match Error: 0
+Reading char 3 @ (295, 47)
+read_segments (295, 47)
+  Background Points [52, 47, 50, 51, 53, 53, 54, 51, 58, 57, 47, 51, 50, 56]
+  Segment Points: [55, 151, 154, 55, 61, 154, 182, 172, 59, 61, 56, 58, 54, 57, 52]
+  Otsu Point Segmentation
+    Threshold: 150
+    Segments: [0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 4
+    Match Error: 0
+Reading char 4 @ (424, 47)
+read_segments (424, 47)
+  Background Points [51, 59, 48, 47, 36, 38, 41, 51, 49, 37, 48, 49, 50, 50]
+  Segment Points: [148, 149, 149, 146, 156, 156, 173, 163, 50, 60, 53, 58, 51, 57, 50]
+  Otsu Point Segmentation
+    Threshold: 145
+    Segments: [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 8
+    Match Error: 0
+  Display:  2.48
+
+  Reading frame 4...
+Reading char 1 @ (35, 47)
+read_segments (35, 47)
+  Background Points [49, 62, 59, 51, 52, 61, 54, 56, 59, 56, 50, 55, 60, 58]
+  Segment Points: [154, 64, 63, 147, 154, 159, 66, 66, 67, 65, 65, 68, 67, 62, 58]
+  Otsu Point Segmentation
+    Threshold: 146
     Segments: [1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 2 @ (170, 50)
-read_segments (170, 50)
-  Background Points [84, 125, 91, 79, 75, 80, 116, 121, 132, 104]
-  Segment Points: [253, 250, 106, 92, 253, 253, 251, 251, 141, 136, 160, 160, 229, 103, 88]
+    Best Match: C
+    Match Error: 0
+Reading char 2 @ (165, 47)
+read_segments (165, 47)
+  Background Points [60, 43, 44, 52, 61, 61, 62, 59, 37, 56, 58, 64, 59, 57]
+  Segment Points: [156, 152, 61, 58, 162, 162, 178, 174, 61, 63, 65, 66, 61, 67, 50]
   Otsu Point Segmentation
-    Threshold: 228
-    Segments: [1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0]
-Reading char 3 @ (299, 50)
-read_segments (299, 50)
-  Background Points [84, 84, 75, 85, 100, 73, 111, 121, 75, 79]
-  Segment Points: [89, 83, 84, 254, 252, 254, 124, 83, 96, 108, 131, 165, 81, 106, 84]
+    Threshold: 151
+    Segments: [1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: P
+    Match Error: 0
+Reading char 3 @ (295, 47)
+read_segments (295, 47)
+  Background Points [53, 58, 53, 56, 49, 47, 51, 52, 52, 51, 50, 51, 41, 48]
+  Segment Points: [58, 54, 55, 149, 154, 155, 60, 53, 60, 60, 59, 60, 54, 52, 50]
   Otsu Point Segmentation
-    Threshold: 251
+    Threshold: 148
     Segments: [0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 4 @ (426, 50)
-read_segments (426, 50)
-  Background Points [81, 143, 85, 71, 72, 61, 80, 78, 83, 68]
-  Segment Points: [253, 99, 90, 128, 102, 104, 144, 129, 253, 254, 170, 148, 157, 163, 75]
+    Best Match: L
+    Match Error: 0
+Reading char 4 @ (424, 47)
+read_segments (424, 47)
+  Background Points [48, 48, 42, 48, 46, 48, 48, 48, 45, 42, 46, 48, 36, 45]
+  Segment Points: [150, 52, 53, 56, 57, 53, 50, 52, 161, 162, 48, 53, 49, 51, 51]
   Otsu Point Segmentation
-    Threshold: 252
+    Threshold: 149
     Segments: [1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
-  WARNING: setting segments 10, 11, 12, 13 to 0 due to 8 and 9 being active
+    Best Match: T
+    Match Error: 0
+  Display: CPLT
+
+  Reading frame 5...
+Reading char 1 @ (35, 47)
+read_segments (35, 47)
+  Background Points [68, 64, 54, 57, 57, 54, 58, 61, 50, 59, 52, 61, 69, 65]
+  Segment Points: [154, 66, 65, 148, 157, 159, 67, 65, 68, 64, 68, 66, 66, 63, 61]
+  Otsu Point Segmentation
+    Threshold: 147
+    Segments: [1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: C
+    Match Error: 0
+Reading char 2 @ (165, 47)
+read_segments (165, 47)
+  Background Points [43, 57, 57, 61, 52, 65, 43, 50, 61, 43, 63, 51, 41, 50]
+  Segment Points: [156, 151, 58, 59, 164, 161, 179, 167, 62, 62, 66, 65, 66, 64, 51]
+  Otsu Point Segmentation
+    Threshold: 150
+    Segments: [1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: P
+    Match Error: 0
+Reading char 3 @ (295, 47)
+read_segments (295, 47)
+  Background Points [56, 51, 53, 53, 50, 60, 49, 58, 61, 50, 53, 53, 52, 45]
+  Segment Points: [58, 56, 55, 151, 150, 156, 60, 54, 59, 60, 59, 60, 52, 53, 50]
+  Otsu Point Segmentation
+    Threshold: 149
+    Segments: [0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: L
+    Match Error: 0
+Reading char 4 @ (424, 47)
+read_segments (424, 47)
+  Background Points [47, 44, 44, 44, 51, 42, 51, 50, 48, 40, 47, 47, 43, 50]
+  Segment Points: [150, 53, 54, 57, 56, 53, 50, 53, 160, 167, 50, 53, 52, 52, 49]
+  Otsu Point Segmentation
+    Threshold: 149
+    Segments: [1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+    Best Match: T
+    Match Error: 0
   Display: CPLT
 
   Reading frame 6...
-Reading char 1 @ (44, 50)
-read_segments (44, 50)
-  Background Points [74, 124, 87, 89, 120, 73, 103, 140, 100, 96]
-  Segment Points: [255, 102, 91, 253, 254, 253, 118, 88, 115, 103, 152, 149, 128, 107, 91]
+Reading char 1 @ (35, 47)
+read_segments (35, 47)
+  Background Points [59, 60, 64, 62, 61, 58, 54, 56, 59, 59, 62, 58, 54, 55]
+  Segment Points: [62, 66, 62, 63, 68, 65, 64, 65, 68, 65, 62, 65, 65, 61, 58]
   Otsu Point Segmentation
-    Threshold: 252
-    Segments: [1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 2 @ (170, 50)
-read_segments (170, 50)
-  Background Points [87, 121, 93, 82, 77, 75, 112, 125, 133, 102]
-  Segment Points: [254, 251, 117, 97, 252, 254, 254, 254, 144, 120, 168, 157, 234, 102, 89]
+    Threshold: 100
+    Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match:
+    Match Error: 0
+Reading char 2 @ (165, 47)
+read_segments (165, 47)
+  Background Points [51, 62, 56, 57, 49, 56, 55, 54, 55, 52, 38, 57, 53, 57]
+  Segment Points: [54, 57, 58, 61, 62, 64, 59, 58, 62, 60, 63, 62, 56, 64, 51]
   Otsu Point Segmentation
-    Threshold: 233
-    Segments: [1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0]
-Reading char 3 @ (299, 50)
-read_segments (299, 50)
-  Background Points [88, 80, 75, 88, 103, 72, 105, 120, 78, 78]
-  Segment Points: [91, 79, 86, 254, 253, 253, 113, 81, 93, 110, 128, 158, 78, 103, 80]
+    Threshold: 100
+    Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match:
+    Match Error: 0
+Reading char 3 @ (295, 47)
+read_segments (295, 47)
+  Background Points [52, 55, 53, 56, 55, 58, 45, 54, 40, 48, 60, 48, 52, 46]
+  Segment Points: [155, 152, 156, 55, 58, 59, 59, 57, 60, 62, 55, 57, 58, 56, 52]
   Otsu Point Segmentation
-    Threshold: 252
-    Segments: [0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 4 @ (426, 50)
-read_segments (426, 50)
-  Background Points [75, 119, 85, 72, 71, 62, 81, 79, 81, 68]
-  Segment Points: [254, 99, 93, 113, 99, 101, 147, 124, 253, 254, 156, 143, 150, 156, 77]
+    Threshold: 151
+    Segments: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 7
+    Match Error: 0
+Reading char 4 @ (424, 47)
+read_segments (424, 47)
+  Background Points [48, 49, 49, 39, 39, 49, 46, 36, 51, 37, 56, 50, 50, 51]
+  Segment Points: [49, 152, 153, 57, 57, 54, 51, 52, 48, 56, 46, 55, 50, 55, 52]
   Otsu Point Segmentation
-    Threshold: 252
-    Segments: [1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
-  WARNING: setting segments 10, 11, 12, 13 to 0 due to 8 and 9 being active
-  Display: CPLT
+    Threshold: 100
+    Segments: [0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 1
+    Match Error: 0
+  Display:   71
 
   Reading frame 7...
-Reading char 1 @ (44, 50)
-read_segments (44, 50)
-  Background Points [59, 59, 63, 52, 54, 57, 57, 56, 63, 58]
-  Segment Points: [64, 64, 59, 57, 61, 61, 59, 63, 62, 59, 59, 59, 64, 58, 58]
+Reading char 1 @ (35, 47)
+read_segments (35, 47)
+  Background Points [48, 62, 58, 59, 51, 57, 60, 57, 57, 56, 53, 62, 54, 54]
+  Segment Points: [64, 66, 65, 64, 67, 66, 66, 67, 68, 65, 63, 64, 65, 64, 61]
   Otsu Point Segmentation
     Threshold: 100
     Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 2 @ (170, 50)
-read_segments (170, 50)
-  Background Points [63, 64, 71, 60, 71, 76, 63, 57, 90, 94]
-  Segment Points: [70, 78, 76, 72, 63, 63, 64, 71, 64, 65, 66, 64, 69, 69, 83]
+    Best Match:
+    Match Error: 0
+Reading char 2 @ (165, 47)
+read_segments (165, 47)
+  Background Points [50, 48, 59, 51, 40, 60, 45, 60, 45, 45, 54, 46, 40, 60]
+  Segment Points: [57, 59, 59, 60, 63, 65, 60, 58, 58, 61, 63, 60, 56, 63, 50]
   Otsu Point Segmentation
     Threshold: 100
     Segments: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-Reading char 3 @ (299, 50)
-read_segments (299, 50)
-  Background Points [87, 141, 85, 85, 106, 88, 103, 118, 110, 132]
-  Segment Points: [252, 127, 252, 252, 254, 253, 253, 254, 136, 141, 162, 170, 125, 177, 144]
+    Best Match:
+    Match Error: 0
+Reading char 3 @ (295, 47)
+read_segments (295, 47)
+  Background Points [53, 58, 56, 55, 57, 53, 39, 60, 48, 46, 56, 47, 49, 47]
+  Segment Points: [156, 157, 156, 54, 59, 61, 58, 58, 61, 60, 57, 56, 61, 56, 51]
   Otsu Point Segmentation
-    Threshold: 251
-    Segments: [1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
-Reading char 4 @ (426, 50)
-read_segments (426, 50)
-  Background Points [87, 130, 87, 93, 109, 69, 128, 136, 136, 106]
-  Segment Points: [254, 253, 253, 252, 253, 252, 252, 253, 149, 150, 172, 178, 240, 168, 139]
+    Threshold: 155
+    Segments: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 7
+    Match Error: 0
+Reading char 4 @ (424, 47)
+read_segments (424, 47)
+  Background Points [42, 52, 27, 42, 44, 39, 39, 36, 36, 42, 49, 45, 50, 37]
+  Segment Points: [49, 153, 151, 56, 58, 51, 52, 53, 48, 57, 49, 54, 51, 54, 51]
   Otsu Point Segmentation
-    Threshold: 239
-    Segments: [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0]
-  Display:   68
+    Threshold: 100
+    Segments: [0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Best Match: 1
+    Match Error: 0
+  Display:   71
 
-Frame Semantics
-  Frame 1: CPLT
-    State: Complete
-  Frame 2:   68
-    Temperature: 68.0
-  Frame 3:   68
-    Unrecognized:   68
-  Frame 4:  2.48
+Frame Semantics:
+  Frame 1:   71
+    Unrecognized:   71
+  Frame 2:  2.48
     Time: 02:48
+  Frame 3:  2.48
+    Time: 02:48
+  Frame 4: CPLT
+    State: Complete
   Frame 5: CPLT
     State: Complete
-  Frame 6: CPLT
-    State: Complete
-  Frame 7:   68
-    Temperature: 68.0
-
-Published temperature: 68.0 °F to topic: home/kiln/temperature
+  Frame 6:   71
+    Temperature: 71.0
+  Frame 7:   71
+    Unrecognized:   71
+Published temperature: 71.0 °F to topic: home/kiln/temperature
 Published time: 02:48 to topic: home/kiln/time
 Published state: Complete to topic: home/kiln/state
+state=Complete, temp=71.0, time=02:48
 ```
 
 
