@@ -428,11 +428,20 @@ for k, output_frame in enumerate(output_frames):
         if debug:
             print(f"  Found {len(good_matches)} good matches")
             
+        if len(good_matches) < 40:
+            print("ERROR: Scene does not match template, camera may be out of position")
+            
+            with open(error_log_fn, 'a') as f:
+                f.write(f"[{datetime.now().isoformat()}] ERROR: Scene does not match template, camera may be out of position\n")
+                
+            exit(1)
+        
         src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches]).reshape(-1,1,2)
         dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1,1,2)
         
         if len(good_matches) > 4:
             H_fine, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            
             
         if debug > 1:
             rect_annotated = rectified_box.copy()
@@ -540,18 +549,6 @@ char_height = 202 - 57
 # 4.0 build a composite frame to finetune the character origins
 #
 # composite frames together to help with identifying location of segments
-composite_frame = processed_frames[0].copy()
-for frame in processed_frames[1:]:
-    composite_frame = np.maximum(composite_frame, frame)
-composite_frame = cv2.normalize(composite_frame, None, 0, 255, cv2.NORM_MINMAX)
-composite_frame = composite_frame.astype(np.uint8)
-
-if debug > 1:
-    cv2.imwrite("roi_composite_frame.jpg", composite_frame)
-
-_, thresh = cv2.threshold(composite_frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-bounding_boxes = [cv2.boundingRect(cnt) for cnt in contours]
 
 def bounds_intersect(bbox1, bbox2):
     """
@@ -578,6 +575,23 @@ def bounds_intersect(bbox1, bbox2):
 
     # If none of the no overlap conditions are met, the boxes intersect
     return True
+
+composite_frame = processed_frames[0].copy()
+for frame in processed_frames[1:]:
+    composite_frame = np.maximum(composite_frame, frame)
+composite_frame = cv2.normalize(composite_frame, None, 0, 255, cv2.NORM_MINMAX)
+composite_frame = composite_frame.astype(np.uint8)
+
+if debug > 1:
+    cv2.imwrite("roi_composite_frame.jpg", composite_frame)
+
+_, thresh = cv2.threshold(composite_frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+if debug > 1:
+    cv2.imwrite("roi_threshold.jpg", thresh)
+    
+contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+bounding_boxes = [cv2.boundingRect(cnt) for cnt in contours]
 
 # filter out bounding boxes that intersect with more than one character_box
 filtered_bounding_boxes = []
@@ -740,6 +754,9 @@ y_indx -= 50 # origin of first character
 x_indx -= 32
 background_offsets = (x_indx, y_indx)
 
+
+total_classification_error = 0
+
 #
 # Some Helper functions to avoid heavy nesting
 #
@@ -888,7 +905,7 @@ def read_char(image: np.ndarray, origin: tuple, error_tolerance=2) -> str:
     """
     Read a character from an image.
     """
-    global segment_definitions
+    global debug, segment_definitions, total_classification_error
     
     segments = read_segments(image, origin)
     
@@ -913,6 +930,8 @@ def read_char(image: np.ndarray, origin: tuple, error_tolerance=2) -> str:
             
     # Find the best match and append to ret is within the error tolerance
     best_match = min(match_counts, key=match_counts.get)
+    classification_error = match_counts[best_match]
+    total_classification_error += classification_error
     
     if debug:
         print(f"    Best Match: {best_match}")
@@ -1000,7 +1019,7 @@ def is_float(x):
     try:
         float(x)
         return True
-    except ValueError:
+    except (ValueError, TypeError):
         return False
 
     
@@ -1089,6 +1108,14 @@ for i, display in enumerate(displays):
             
     last_was_state = _state is not None
     
+if state == 'Complete' and is_float(temp):
+    if temp > 130.0:
+        state = 'Cooldown'
+
+with open(run_log_fn, 'a') as f:
+    f.write(f'[{datetime.now().isoformat()}] temp={temp}, time={time}, state={state}, total_classification_error={total_classification_error}\n')
+
+# 4.3 Log the results
 if temp is None and time is None and state is None:
     sys.stderr.write("ERROR: Failed to extract any of the temperature, time, or state.\n")
         
@@ -1096,11 +1123,7 @@ if temp is None and time is None and state is None:
         f.write(f"[{datetime.now().isoformat()}] ERROR: Failed to extract any of the temperature, time, or state\n")
         
     exit(1)
-
-if state == 'Complete' and is_float(temp):
-    if temp > 130.0:
-        state = 'Cooldown'
-
+    
 #
 # 5. Publish the results to MQTT
 #
@@ -1147,9 +1170,6 @@ if state is not None:
 
 # Disconnect
 client.disconnect()
-
-with open(run_log_fn, 'a') as f:
-    f.write(f'[{datetime.now().isoformat()}] temp={temp}, time={time}, state={state}\n')
 
 #
 # 6. Publish to Firebase
@@ -1206,4 +1226,4 @@ if FIREBASE_API_FILE is not None and state is not None and temp is not None and 
     print()
 
 # provide results to stdout
-print(f"state={state}, temp={temp}, time={time}")
+print(f"state={state}, temp={temp}, time={time}, total_classification_error={total_classification_error}")
