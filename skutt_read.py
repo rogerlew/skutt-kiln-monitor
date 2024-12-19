@@ -831,7 +831,7 @@ def read_segments(image: np.ndarray, origin: tuple, method='point_otsu') -> list
         
     if debug:
         print("  Background Points", background_pts)
-        print("  Segment Points:", segment_pts)
+        print("  Segment Point Medians:", segment_pts)
     
     ci_segments = None
     if method == 'confidence_interval' or method == 'ensemble':
@@ -1097,11 +1097,18 @@ if temp is None and time is None and state is None:
         
     exit(1)
 
+if state == 'Complete' and is_float(temp):
+    if temp > 130.0:
+        state = 'Cooldown'
+
 #
 # 5. Publish the results to MQTT
 #
 # home/kiln/temperature is a temperature sensor in home-assistant
 # that bridges with HomeKit
+
+if debug:
+    print("\nPublishing to MQTT...")
 
 mqtt_broker = os.getenv('MQTT_BROKER')
 mqtt_port = int(os.getenv('MQTT_PORT'))
@@ -1122,29 +1129,27 @@ if temp is not None:
     mqtt_topic = 'home/kiln/temperature'
     client.publish(mqtt_topic, temp)
     if debug:
-        print(f"Published temperature: {temp} °F to topic: {mqtt_topic}")
+        print(f"  Published temperature: {temp} °F to topic: {mqtt_topic}")
 
 # Publish the time
 if time is not None:
     mqtt_topic = 'home/kiln/time'
     client.publish(mqtt_topic, time)
     if debug:
-        print(f"Published time: {time} to topic: {mqtt_topic}")
+        print(f"  Published time: {time} to topic: {mqtt_topic}")
     
 # Publish the state
 if state is not None:
     mqtt_topic = 'home/kiln/state'
     client.publish(mqtt_topic, state)
     if debug:
-        print(f"Published state: {state} to topic: {mqtt_topic}")
+        print(f"  Published state: {state} to topic: {mqtt_topic}")
 
 # Disconnect
 client.disconnect()
 
 with open(run_log_fn, 'a') as f:
     f.write(f'[{datetime.now().isoformat()}] temp={temp}, time={time}, state={state}\n')
-
-print(f"state={state}, temp={temp}, time={time}")
 
 #
 # 6. Publish to Firebase
@@ -1158,6 +1163,8 @@ if FIREBASE_API_FILE is not None and state is not None and temp is not None and 
     import requests
 
     # fetch ambient temperature from Home Assistant
+    if debug:
+        print("\nFetching ambient temperature from Home Assistant")
     ambient_temp = None
     
     HOMEASSISTANT_IP = os.getenv('HOMEASSISTANT_IP')
@@ -1177,10 +1184,12 @@ if FIREBASE_API_FILE is not None and state is not None and temp is not None and 
             ambient_temp = float(data['state'])
         except ValueError:
             if debug:
-                print(f"Failed to convert {data['state']} retrieved from home assistant to float")
+                print(f"WARNING: Failed to convert {data['state']} retrieved from home assistant to float")
             pass
         
     # publish to firebase
+    if debug:
+        print("\nPublishing to Firebase")
     doc = dict(
         run_time=time,
         state=state,
@@ -1193,6 +1202,8 @@ if FIREBASE_API_FILE is not None and state is not None and temp is not None and 
 
     db = firestore.client()
     db.collection('kiln_data').add(doc)
+    
+    print()
 
-    if debug:
-        print("Published to firebase", doc)
+# provide results to stdout
+print(f"state={state}, temp={temp}, time={time}")
