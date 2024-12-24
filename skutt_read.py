@@ -10,7 +10,7 @@ import dotenv
 import subprocess
 import math
 import json
-import glob
+from glob import glob
 from datetime import datetime
 
 from os.path import split as _split
@@ -46,6 +46,7 @@ if args.no_debug:
 
 
 thisdir = os.path.dirname(os.path.abspath(__file__))
+templates_dir = _join(thisdir, 'templates')
 
 # 1.2 Set Working Directory
 
@@ -69,7 +70,7 @@ if not _exists(_split(run_log_fn)[0]):
     
 # 1.4 Load the template image
 
-template_fn = _join(thisdir, 'templates/template.jpg')
+template_fn = _join(templates_dir, 'template.jpg')
 
 if not _exists(template_fn):
     sys.stderr.write("ERROR: Template file not found\n")
@@ -79,7 +80,7 @@ if not _exists(template_fn):
         
     exit(1)
 
-segment_mask_fn = _join(thisdir, 'templates/segment_mask.png')
+segment_mask_fn = _join(templates_dir, 'segment_mask.png')
 
 if not _exists(segment_mask_fn):
     sys.stderr.write("ERROR: Segment Mask file not found\n")
@@ -157,7 +158,8 @@ if debug > 4:
 
 #
 # 2.1 Remove existing frames
-output_frames = glob.glob("frame_*.jpg")
+output_frames = glob("frame_*.jpg")
+output_frames += glob("roi_*.jpg")
 for output_frame in output_frames:
     os.remove(output_frame)
 
@@ -181,7 +183,7 @@ if result.returncode != 0:
     
     
 # Check if frames were captured
-output_frames = glob.glob("frame_*.jpg")
+output_frames = glob("frame_*.jpg")
 
 if debug:
     print(f"Captured {len(output_frames)} frames\n\n")
@@ -402,7 +404,7 @@ for k, output_frame in enumerate(output_frames):
         print(f"  Grayscale conversion,  Raw Min Value: {min_val}, Raw Max Value: {max_val}")
     
     # Rectify the image
-    rectified_box = cv2.warpPerspective(weighted_gray, H_box, (output_width, output_height), flags=cv2.INTER_NEAREST)
+    rectified_box = cv2.warpPerspective(weighted_gray, H_box, (output_width, output_height))  #, flags=cv2.INTER_NEAREST)
 
     if debug > 1:
         cv2.imwrite(f"frame_{k+1:04d},03_rectified.jpg", rectified_box)
@@ -467,8 +469,7 @@ for k, output_frame in enumerate(output_frames):
             with open("H_fine.json", "w") as f:
                 json.dump(homography, f)
         else:
-            if debug:
-                print("  WARNING: Fine Homography identification failed")
+            print("  WARNING: Fine Homography identification failed")
 
     #
     # 3.2.2 Homography Fallback
@@ -494,7 +495,7 @@ for k, output_frame in enumerate(output_frames):
         exit(1)
 
     h_t, w_t = template.shape[:2]
-    corrected_box = cv2.warpPerspective(rectified_box, H_fine, (w_t, h_t), flags=cv2.INTER_NEAREST)
+    corrected_box = cv2.warpPerspective(rectified_box, H_fine, (w_t, h_t))  #, flags=cv2.INTER_NEAREST)
 
     if debug > 1:
         print(f"  Corrected image saved as frame_{k+1:04d},05_corrected.jpg")
@@ -576,79 +577,81 @@ def bounds_intersect(bbox1, bbox2):
     # If none of the no overlap conditions are met, the boxes intersect
     return True
 
-composite_frame = processed_frames[0].copy()
-for frame in processed_frames[1:]:
-    composite_frame = np.maximum(composite_frame, frame)
-composite_frame = cv2.normalize(composite_frame, None, 0, 255, cv2.NORM_MINMAX)
-composite_frame = composite_frame.astype(np.uint8)
+if 0:
+    composite_frame = processed_frames[0].copy()
+    for frame in processed_frames[1:]:
+        composite_frame = np.maximum(composite_frame, frame)
+    composite_frame = cv2.normalize(composite_frame, None, 0, 255, cv2.NORM_MINMAX)
+    composite_frame = composite_frame.astype(np.uint8)
 
-if debug > 1:
-    cv2.imwrite("roi_composite_frame.jpg", composite_frame)
+    if debug > 1:
+        cv2.imwrite("roi_composite_frame.jpg", composite_frame)
 
-_, thresh = cv2.threshold(composite_frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, thresh = cv2.threshold(composite_frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-if debug > 1:
-    cv2.imwrite("roi_threshold.jpg", thresh)
-    
-contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-bounding_boxes = [cv2.boundingRect(cnt) for cnt in contours]
-
-# filter out bounding boxes that intersect with more than one character_box
-filtered_bounding_boxes = []
-
-for bbox in bounding_boxes:
-    num_intersections = 0
-    for ul_x, ul_y in char_origins:
-        if bounds_intersect(bbox, (ul_x, ul_y, char_width, char_height)):
-            num_intersections += 1
-            
-    if num_intersections == 1:
-        filtered_bounding_boxes.append(bbox)
-
-_revised_char_origins = []
-
-for k, (ul_x, ul_y) in enumerate(char_origins):
-    lr_x = ul_x + char_width
-    lr_y = ul_y + char_height
-    
-    intersections = []
-    for x, y, w, h in filtered_bounding_boxes:
-        if bounds_intersect((ul_x, ul_y, char_width, char_height), (x, y, w, h)):
-            intersections.append((x, y, w, h))
-            
-    if len(intersections) == 0:
-        if debug:
-            print(f"WARNING: No intersection found for character {k+1} at {ul_x, ul_y}")
-            
-        _revised_char_origins.append((ul_x, ul_y))
+    if debug > 1:
+        cv2.imwrite("roi_threshold.jpg", thresh)
         
-    else:
-        # build bounding box of the intersections
-        x, y, w, h = intersections[0]
-        for x1, y1, w1, h1 in intersections[1:]:
-            x = min(x, x1)
-            y = min(y, y1)
-            w = max(w, x1 + w1) - x
-            h = max(h, y1 + h1) - y
-            
-        distance = math.sqrt((x - ul_x)**2 + (y - ul_y)**2)
-        if distance < 20:
-            if debug: 
-                print(f"Revising character origin for character {k+1} at {ul_x, ul_y} to {x, y}")
-            _revised_char_origins.append((x, y))
-        else:
-            if debug:
-                print(f"WARNING: Distance too large for revising character {k+1} origin at {ul_x, ul_y} to {x, y}")
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    bounding_boxes = [cv2.boundingRect(cnt) for cnt in contours]
+
+    # filter out bounding boxes that intersect with more than one character_box
+    filtered_bounding_boxes = []
+
+    for bbox in bounding_boxes:
+        num_intersections = 0
+        for ul_x, ul_y in char_origins:
+            if bounds_intersect(bbox, (ul_x, ul_y, char_width, char_height)):
+                num_intersections += 1
+                
+        if num_intersections == 1:
+            filtered_bounding_boxes.append(bbox)
+
+    _revised_char_origins = []
+
+    for k, (ul_x, ul_y) in enumerate(char_origins):
+        lr_x = ul_x + char_width
+        lr_y = ul_y + char_height
+        
+        intersections = []
+        for x, y, w, h in filtered_bounding_boxes:
+            if bounds_intersect((ul_x, ul_y, char_width, char_height), (x, y, w, h)):
+                intersections.append((x, y, w, h))
+                
+        if len(intersections) == 0:
+            print(f"WARNING: No intersection found for character {k+1} at {ul_x, ul_y}")
+                
             _revised_char_origins.append((ul_x, ul_y))
+            
+        else:
+            # build bounding box of the intersections
+            x, y, w, h = intersections[0]
+            for x1, y1, w1, h1 in intersections[1:]:
+                x = min(x, x1)
+                y = min(y, y1)
+                w = max(w, x1 + w1) - x
+                h = max(h, y1 + h1) - y
+            
+            if debug:
+                print(f"Character {k+1} at {ul_x, ul_y} has intersection bounding box {x, y, w, h}")    
+            
+            distance = math.sqrt((x - ul_x)**2 + (y - ul_y)**2)
+            if distance < 20:
+                if debug: 
+                    print(f"Revising character origin for character {k+1} at {ul_x, ul_y} to {x, y}")
+                _revised_char_origins.append((x, y))
+            else:
+                print(f"WARNING: Distance too large for revising character {k+1} origin at {ul_x, ul_y} to {x, y}")
+                _revised_char_origins.append((ul_x, ul_y))
 
-char_origins = _revised_char_origins
+    if debug > 1:
+        output_image = cv2.cvtColor(composite_frame, cv2.COLOR_GRAY2BGR)  # Convert to color for visualization
+        for (x, y, w, h) in bounding_boxes:
+            if w > 10 and h > 20:  # Filter small artifacts
+                cv2.rectangle(output_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.imwrite("roi_bounding_boxes.jpg", output_image)
 
-if debug > 1:
-    output_image = cv2.cvtColor(composite_frame, cv2.COLOR_GRAY2BGR)  # Convert to color for visualization
-    for (x, y, w, h) in bounding_boxes:
-        if w > 10 and h > 20:  # Filter small artifacts
-            cv2.rectangle(output_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-    cv2.imwrite("roi_bounding_boxes.jpg", output_image)
+    char_origins = _revised_char_origins
 
 #
 # Segment and character defintions
@@ -686,7 +689,7 @@ segment_definitions = {
     "2": (1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0),
     "3": (1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0),
     "4": (0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
-    "5": (1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
+    "5": (1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0),
     "6": (1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
     "7": (1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     "8": (1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),
@@ -754,7 +757,7 @@ y_indx -= 50 # origin of first character
 x_indx -= 32
 background_offsets = (x_indx, y_indx)
 
-
+display_classification_error = None
 total_classification_error = 0
 
 #
@@ -905,14 +908,12 @@ def read_char(image: np.ndarray, origin: tuple, error_tolerance=2) -> str:
     """
     Read a character from an image.
     """
-    global debug, segment_definitions, total_classification_error
+    global debug, segment_definitions, total_classification_error, display_classification_error
     
     segments = read_segments(image, origin)
     
-    if (segments[8] == 1 and segments[9] == 1):
-        if debug and sum(segments[10:14]) > 0:
-            print("  WARNING: setting segments 10, 11, 12, 13 to 0 due to 8 and 9 being active")
-            
+    if segments[8] == 1 and segments[9] == 1 and sum(segments[10:14]) > 0:
+        print("  WARNING: setting segments 10, 11, 12, 13 to 0 due to 8 and 9 being active")
         segments[10] = 0
         segments[11] = 0
         segments[12] = 0
@@ -931,6 +932,7 @@ def read_char(image: np.ndarray, origin: tuple, error_tolerance=2) -> str:
     # Find the best match and append to ret is within the error tolerance
     best_match = min(match_counts, key=match_counts.get)
     classification_error = match_counts[best_match]
+    display_classification_error += classification_error
     total_classification_error += classification_error
     
     if debug:
@@ -953,13 +955,19 @@ def read_display(image: np.ndarray) -> str:
     """
     Reads all th echaracters from an image.
     """
-    global char_origins
+    global char_origins, display_classification_error
+    display_classification_error = 0
     output = ""
     for i, char_origin in enumerate(char_origins):
         if debug:
             print(f"Reading char {i+1} @ {char_origin}")
         output += read_char(image, char_origin)
         
+    if display_classification_error == 0:
+        same_count = len(glob(_join(templates_dir, f"raw_rois/{output}*.png")))
+        if same_count < 32:
+            cv2.imwrite(_join(templates_dir,  f"raw_rois/{output}-{same_count+1:04d}.png"), image)
+
     return output
 
 # 4.1 LFG
@@ -1048,31 +1056,68 @@ def skutt_temp(x, last_was_state):
     Returns the temperature in DEG F if the input is identified as a temperature string,
     otherwise returns None.
     """
+    if '.' in x:
+        return None
+    
     try:
         temp = float(x)
-        if temp > 60.0 and temp < 2500.0 and last_was_state:
+        if temp > 50.0 and temp < 2500.0:
             return temp
     except ValueError:
         return None
     
     return None
             
-            
 def skutt_state(x):
     """
-    Returns the state if the input is identified as a state string,
-    otherwise returns None.
-    
-    Not fully implemented.
+    Returns the state if x matches a key in state_map directly or
+    within a one-character difference.
     """
-    if x.startswith('CPL'):
-        return 'Complete'
-    if 'CP' in x:
-        return 'Complete'
-    if 'PL' in x:
-        return 'Complete'
-    if 'LT' in x:
-        return 'Complete'
+    state_map = {
+        'CPLT': 'Complete',
+        'IDLE': 'Idle',
+    }
+    
+    x = x.upper()
+
+    def within_one_char(a, b):
+        # If lengths differ by more than 1, can't be within one char change
+        if abs(len(a) - len(b)) > 1:
+            return False
+        
+        # Attempt a quick check (edit distance <= 1)
+        mismatches = 0
+        i, j = 0, 0
+        while i < len(a) and j < len(b):
+            if a[i] != b[j]:
+                mismatches += 1
+                if mismatches > 1:
+                    return False
+                # If lengths are equal, just move both
+                if len(a) == len(b):
+                    i += 1
+                    j += 1
+                # If a is longer, move a's pointer
+                elif len(a) > len(b):
+                    i += 1
+                # If b is longer, move b's pointer
+                else:
+                    j += 1
+            else:
+                i += 1
+                j += 1
+        
+        # Account for any trailing character in one string
+        if (len(a) - i) + (len(b) - j) > 1:
+            return False
+        # Add trailing difference
+        mismatches += (len(a) - i) + (len(b) - j)
+        
+        return mismatches <= 1
+
+    for key, val in state_map.items():
+        if key in x or x in key or within_one_char(key, x):
+            return val
 
     return None
 
@@ -1177,7 +1222,15 @@ client.disconnect()
 
 FIREBASE_API_FILE = os.getenv('FIREBASE_API_FILE')
 
-if FIREBASE_API_FILE is not None and state is not None and temp is not None and time is not None:
+should_push_to_firebase = False
+if FIREBASE_API_FILE:
+    if (state == 'Complete' or state == 'Cooldown') and temp is not None and time is not None:
+        should_push_to_firebase = True
+        
+    elif state == 'Idle' and temp is not None:
+        should_push_to_firebase = True
+        
+if should_push_to_firebase:
     import firebase_admin
     from firebase_admin import firestore, credentials
     import requests
@@ -1203,8 +1256,7 @@ if FIREBASE_API_FILE is not None and state is not None and temp is not None and 
         try:
             ambient_temp = float(data['state'])
         except ValueError:
-            if debug:
-                print(f"WARNING: Failed to convert {data['state']} retrieved from home assistant to float")
+            print(f"WARNING: Failed to convert {data['state']} retrieved from home assistant to float")
             pass
         
     # publish to firebase
