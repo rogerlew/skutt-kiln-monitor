@@ -250,7 +250,7 @@ marker_corners_normalized = np.array([
 # The frames are assumed to have the same perspective and we only identify the homography for the first frame
 # for the remaining frames we use the homography from the first frame to rectify the image
 H_box, H_fine = None, None
-rotate_angle = None
+interpolation_flag = cv2.INTER_LINEAR
 processed_frames = []
 for k, output_frame in enumerate(output_frames):
 
@@ -404,7 +404,7 @@ for k, output_frame in enumerate(output_frames):
         print(f"  Grayscale conversion,  Raw Min Value: {min_val}, Raw Max Value: {max_val}")
     
     # Rectify the image
-    rectified_box = cv2.warpPerspective(weighted_gray, H_box, (output_width, output_height))  #, flags=cv2.INTER_NEAREST)
+    rectified_box = cv2.warpPerspective(weighted_gray, H_box, (output_width, output_height), flags=interpolation_flag)
 
     if debug > 1:
         cv2.imwrite(f"frame_{k+1:04d},03_rectified.jpg", rectified_box)
@@ -495,7 +495,8 @@ for k, output_frame in enumerate(output_frames):
         exit(1)
 
     h_t, w_t = template.shape[:2]
-    corrected_box = cv2.warpPerspective(rectified_box, H_fine, (w_t, h_t))  #, flags=cv2.INTER_NEAREST)
+    H_combined = np.dot(H_fine, H_box)
+    corrected_box = cv2.warpPerspective(weighted_gray, H_combined, (w_t, h_t), flags=interpolation_flag)
 
     if debug > 1:
         print(f"  Corrected image saved as frame_{k+1:04d},05_corrected.jpg")
@@ -535,10 +536,10 @@ if len(processed_frames) == 0:
 # these specfies the origin of the 4 characters in the display in pixels coordinates
 # the origin is the top-left corner of the character
 char_origins = [
-    (52-8, 58-8), # (131, 202)
-    (178-8, 58-8),
-    (304-5, 58-8),
-    (434-8, 58-8)
+    (39, 58-8), # (131, 202)
+    (169, 58-8),
+    (292, 58-8),
+    (420, 58-8)
 ]
 
 # these are used to hit test contours for the precise character origin setting
@@ -577,81 +578,89 @@ def bounds_intersect(bbox1, bbox2):
     # If none of the no overlap conditions are met, the boxes intersect
     return True
 
+composite_frame = processed_frames[0].copy()
+for frame in processed_frames[1:]:
+    composite_frame = np.maximum(composite_frame, frame)
+    
+    
 if 0:
-    composite_frame = processed_frames[0].copy()
-    for frame in processed_frames[1:]:
-        composite_frame = np.maximum(composite_frame, frame)
+    # apply gamma correction
+    gamma = 0.85
+    composite_frame = cv2.LUT(composite_frame, np.array([((i / 255.0) ** gamma) * 255 for i in np.arange(0, 256)]).astype(np.uint8))
     composite_frame = cv2.normalize(composite_frame, None, 0, 255, cv2.NORM_MINMAX)
     composite_frame = composite_frame.astype(np.uint8)
 
-    if debug > 1:
-        cv2.imwrite("roi_composite_frame.jpg", composite_frame)
+if debug > 1:
+    cv2.imwrite("roi_composite_frame.jpg", composite_frame)
 
-    _, thresh = cv2.threshold(composite_frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+_, thresh = cv2.threshold(composite_frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    if debug > 1:
-        cv2.imwrite("roi_threshold.jpg", thresh)
-        
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    bounding_boxes = [cv2.boundingRect(cnt) for cnt in contours]
+# flood fill edge black
+_, thresh, _, _ = cv2.floodFill(thresh, None, (0, 0), 0)
 
-    # filter out bounding boxes that intersect with more than one character_box
-    filtered_bounding_boxes = []
+if debug > 1:
+    cv2.imwrite("roi_threshold.jpg", thresh)
+    
+contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+bounding_boxes = [cv2.boundingRect(cnt) for cnt in contours]
 
-    for bbox in bounding_boxes:
-        num_intersections = 0
-        for ul_x, ul_y in char_origins:
-            if bounds_intersect(bbox, (ul_x, ul_y, char_width, char_height)):
-                num_intersections += 1
-                
-        if num_intersections == 1:
-            filtered_bounding_boxes.append(bbox)
+# filter out bounding boxes that intersect with more than one character_box
+filtered_bounding_boxes = []
 
-    _revised_char_origins = []
-
-    for k, (ul_x, ul_y) in enumerate(char_origins):
-        lr_x = ul_x + char_width
-        lr_y = ul_y + char_height
-        
-        intersections = []
-        for x, y, w, h in filtered_bounding_boxes:
-            if bounds_intersect((ul_x, ul_y, char_width, char_height), (x, y, w, h)):
-                intersections.append((x, y, w, h))
-                
-        if len(intersections) == 0:
-            print(f"WARNING: No intersection found for character {k+1} at {ul_x, ul_y}")
-                
-            _revised_char_origins.append((ul_x, ul_y))
+for bbox in bounding_boxes:
+    num_intersections = 0
+    for ul_x, ul_y in char_origins:
+        if bounds_intersect(bbox, (ul_x, ul_y, char_width, char_height)):
+            num_intersections += 1
             
+    if num_intersections == 1:
+        filtered_bounding_boxes.append(bbox)
+
+_revised_char_origins = []
+
+for k, (ul_x, ul_y) in enumerate(char_origins):
+    lr_x = ul_x + char_width
+    lr_y = ul_y + char_height
+    
+    intersections = []
+    for x, y, w, h in filtered_bounding_boxes:
+        if bounds_intersect((ul_x, ul_y, char_width, char_height), (x, y, w, h)):
+            intersections.append((x, y, w, h))
+            
+    if len(intersections) == 0:
+        print(f"WARNING: No intersection found for character {k+1} at {ul_x, ul_y}")
+            
+        _revised_char_origins.append((ul_x, ul_y))
+        
+    else:
+        # build bounding box of the intersections
+        x, y, w, h = intersections[0]
+        for x1, y1, w1, h1 in intersections[1:]:
+            x = min(x, x1)
+            y = min(y, y1)
+            w = max(w, x1 + w1) - x
+            h = max(h, y1 + h1) - y
+        
+        if debug:
+            print(f"Character {k+1} at {ul_x, ul_y} has intersection bounding box {x, y, w, h}")    
+        
+        distance = math.sqrt((x - ul_x)**2 + (y - ul_y)**2)
+        if distance < 20:
+            if debug: 
+                print(f"Revising character origin for character {k+1} at {ul_x, ul_y} to {x, y}")
+            _revised_char_origins.append((x, y))
         else:
-            # build bounding box of the intersections
-            x, y, w, h = intersections[0]
-            for x1, y1, w1, h1 in intersections[1:]:
-                x = min(x, x1)
-                y = min(y, y1)
-                w = max(w, x1 + w1) - x
-                h = max(h, y1 + h1) - y
-            
-            if debug:
-                print(f"Character {k+1} at {ul_x, ul_y} has intersection bounding box {x, y, w, h}")    
-            
-            distance = math.sqrt((x - ul_x)**2 + (y - ul_y)**2)
-            if distance < 20:
-                if debug: 
-                    print(f"Revising character origin for character {k+1} at {ul_x, ul_y} to {x, y}")
-                _revised_char_origins.append((x, y))
-            else:
-                print(f"WARNING: Distance too large for revising character {k+1} origin at {ul_x, ul_y} to {x, y}")
-                _revised_char_origins.append((ul_x, ul_y))
+            print(f"WARNING: Distance too large for revising character {k+1} origin at {ul_x, ul_y} to {x, y}")
+            _revised_char_origins.append((ul_x, ul_y))
 
-    if debug > 1:
-        output_image = cv2.cvtColor(composite_frame, cv2.COLOR_GRAY2BGR)  # Convert to color for visualization
-        for (x, y, w, h) in bounding_boxes:
-            if w > 10 and h > 20:  # Filter small artifacts
-                cv2.rectangle(output_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.imwrite("roi_bounding_boxes.jpg", output_image)
+if debug > 1:
+    output_image = cv2.cvtColor(composite_frame, cv2.COLOR_GRAY2BGR)  # Convert to color for visualization
+    for (x, y, w, h) in bounding_boxes:
+        if w > 10 and h > 20:  # Filter small artifacts
+            cv2.rectangle(output_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    cv2.imwrite("roi_bounding_boxes.jpg", output_image)
 
-    char_origins = _revised_char_origins
+char_origins = [(rev_x, og_y) for (og_x, og_y), (rev_x, rev_y) in zip(char_origins, _revised_char_origins)]
 
 #
 # Segment and character defintions
@@ -710,6 +719,9 @@ segment_definitions = {
     " ": (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ".": (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
 }
+
+# assert that keys are unique
+assert len(segment_definitions) == len(set(segment_definitions.keys())), "Segment definitions are not unique"
 
 _segment_mask_origins = [
     (422, 49),  # 0
@@ -975,8 +987,13 @@ def read_display(image: np.ndarray) -> str:
 if debug:
     print("Reading processed frames...")
 
+# Define the kernel for morphological operations
+morph_kernel = np.ones((3,3), np.uint8)
+    
 displays = [] # holds the characters from each of the frames
 for k, image in enumerate(processed_frames):
+    image = cv2.morphologyEx(image, cv2.MORPH_OPEN, morph_kernel)
+    
     if debug:
         print(f"  Reading frame {k+1}...")
     
@@ -1009,6 +1026,7 @@ for k, image in enumerate(processed_frames):
     
     if debug:
         print(f"  Display: {display}\n")
+        print(f"  Match Error: {display_classification_error}")
         
     displays.append(display)
     
